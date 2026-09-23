@@ -168,6 +168,14 @@ def delete_purchase_record(record_id: int, member_id: int) -> None:
         session.commit()
 
 
+def get_month_carpool_payment_status(member_id: int, year: int, month: int) -> bool:
+    """該成員本月共乘紀錄是否已全部付清。只要有任何一筆未付款就回傳 False；
+    全部已付款、或本月沒有任何共乘紀錄，都回傳 True。
+    """
+    records = get_month_carpool_records(member_id, year, month)
+    return all(r.is_paid for r in records)
+
+
 def get_month_purchase_subtotal_by_initiator(year: int, month: int) -> dict[int, int]:
     """本月各發起人的代買小計（品項金額加總），用於顯示每位發起人各自的小計。"""
     with get_session() as session:

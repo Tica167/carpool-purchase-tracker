@@ -3,7 +3,7 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.8 |
+| 文件版本 | 1.9 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
 | 對應 PRD 版本 | 1.4 |
@@ -83,6 +83,7 @@
   - `toggle_payment_status(record_type, record_id, member_id)`
   - `get_month_carpool_records(member_id, year, month)` / `get_month_purchase_records(year, month)`
   - `get_member_monthly_summary(member_id, year, month)` — 回傳該成員當月的共乘趟數、車資小計、代買小計（作為分攤人應付的金額）與應付總計，供儀表板頂部結算區使用；車主登入時 `app.py` 會對每位一般成員各呼叫一次，組成 4 行總覽
+  - `get_month_carpool_payment_status(member_id, year, month)` — 該成員本月共乘紀錄是否已全部付清（任何一筆未付款即為 False），供頂部「付款狀態」卡片使用
   - `get_monthly_unpaid_count(member_id)`
   - `add_member(name)` / `remove_member(member_id)`
 
@@ -199,8 +200,9 @@ purchase_records 1 ──── * purchase_shares
 ### 5.3 核心互動流程
 1. 首頁點選姓名 → 一般成員直接登入；車主需輸入密碼，錯誤則停在登入頁顯示「密碼錯誤」。登入成功導向 `/dashboard`，若當月有未付款紀錄，頁面上方顯示提示區塊「本月尚未結算」。
 2. 儀表板頂部（車資結算區）：
-   - **車主登入**：固定顯示「所有一般成員」各自的「共乘趟數」與「車資本月應付總計」，依成員名單順序（Tina、Blue、Mango、Rennie）一行兩欄、共 4 行；**不受「查看成員」下拉切換影響**（下拉只影響下方日曆/代買區塊要看誰的）。車主不列自己這一行（車主不需要付車資給自己）。
-   - **一般成員查看自己**：顯示自己的「共乘趟數」與「車資本月應付總計」，一行兩欄。
+   - **車主登入**：固定顯示「所有一般成員」各自的「共乘趟數」「車資本月應付總計」「付款狀態」，依成員名單順序（Tina、Blue、Mango、Rennie）一行三欄、共 4 行；**不受「查看成員」下拉切換影響**（下拉只影響下方日曆/代買區塊要看誰的）。車主不列自己這一行（車主不需要付車資給自己）。
+   - **一般成員查看自己**：顯示自己的「共乘趟數」「車資本月應付總計」「付款狀態」，一行三欄。
+   - **付款狀態**：`get_month_carpool_payment_status(member_id, year, month)` 判斷——本月只要有任何一筆共乘未付款就顯示「未付款」（紅色），全部付清或本月沒有共乘紀錄則顯示「已付款」（綠色）；車主看到的是各成員自己最新標記的結果，即時反映。
    - **一般成員查看他人**（`can_view_rides=False`）：顯示隱私提示文字，說明共乘明細屬隱私僅本人與車主可查看。
    - 車資本月應付總計僅計算 `carpool_subtotal`，不含代買金額（代買另外在下方依發起人拆分顯示，見第 5、6 點）。
 3. 「查看成員」下拉選單開放給所有人（不限車主），可切換查看任何成員的日曆。
@@ -225,7 +227,7 @@ purchase_records 1 ──── * purchase_shares
 |------|------|------|--------------------|
 | `/` | GET | 顯示身份選擇頁 | - |
 | `/login/<member_id>` | POST | 設定 Session 身份；若為車主須比對 `password` 表單欄位與 `OWNER_PASSWORD` | - |
-| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單、各發起人小計與應付明細） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_month_purchase_subtotal_by_initiator()`、`get_month_payable_by_initiator()`、`get_holidays()`、`has_holiday_data()` |
+| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單、各發起人小計與應付明細） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_carpool_payment_status()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_month_purchase_subtotal_by_initiator()`、`get_month_payable_by_initiator()`、`get_holidays()`、`has_holiday_data()` |
 | `/dashboard/carpool/save` | POST | 儲存選定日期的上班/下班開關與備註 | `set_carpool_slot()` |
 | `/dashboard/status/save` | POST | 儲存選定日期的請假/居家狀態（限本人） | `set_day_status()` |
 | `/dashboard/carpool/<id>/pay` | POST | 標記共乘紀錄已付款（限本人） | `toggle_payment_status()` |
