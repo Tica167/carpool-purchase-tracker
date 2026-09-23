@@ -9,8 +9,8 @@ from models import (
     Member,
     MemberDayStatus,
     PurchaseItem,
+    PurchaseItemShare,
     PurchaseRecord,
-    PurchaseShare,
 )
 
 DAY_STATUS_CHOICES = ("leave", "wfh")
@@ -134,13 +134,13 @@ def get_month_all_day_status(year: int, month: int) -> dict[date, dict[int, str]
 
 
 def toggle_payment_status(record_type: str, record_id: int, member_id: int) -> bool:
+    """僅適用於共乘紀錄（每筆一個時段）。代買的付款狀態改用
+    `toggle_purchase_record_share_payment()`（依卡片＋購買人整批切換）。
+    """
     with get_session() as session:
-        if record_type == "carpool":
-            record = session.get(CarpoolRecord, record_id)
-        elif record_type == "purchase_share":
-            record = session.get(PurchaseShare, record_id)
-        else:
+        if record_type != "carpool":
             raise ValueError("未知的紀錄類型")
+        record = session.get(CarpoolRecord, record_id)
 
         if record is None:
             raise ValueError("紀錄不存在")
@@ -152,46 +152,79 @@ def toggle_payment_status(record_type: str, record_id: int, member_id: int) -> b
         return record.is_paid
 
 
-def create_purchase_record(
+def add_purchase_item(
     initiator_id: int,
     record_date: date,
-    items: list[tuple[str, int]],
-    share_member_ids: list[int],
+    item_name: str,
+    amount: int,
+    buyer_member_ids: list[int],
     note: str | None = None,
 ) -> PurchaseRecord:
-    """新增一筆代買紀錄。share_member_ids 可以是空清單──代表這筆只是自己的紀錄，不需要別人付款。"""
-    if not items:
-        raise ValueError("請至少輸入一個代買品項")
+    """新增一筆代買品項。若當天、同一位代買人已經有一張代買卡片（PurchaseRecord），
+    新品項會併入該張現有卡片；否則新建一張卡片（此時才會採用傳入的 note）。
+    buyer_member_ids 可以是空清單──代表這個品項僅代買人自己的花費，不需要別人付款；
+    有指定購買人時，這個品項的金額平均分攤給「這個品項自己的」購買人（不同品項的購買人可以不同）。
+    """
+    if not item_name or amount <= 0:
+        raise ValueError("請輸入品項名稱與金額")
 
     with get_session() as session:
-        purchase = PurchaseRecord(initiator_id=initiator_id, record_date=record_date, note=note)
-        session.add(purchase)
+        record = (
+            session.query(PurchaseRecord)
+            .filter_by(initiator_id=initiator_id, record_date=record_date)
+            .first()
+        )
+        if record is None:
+            record = PurchaseRecord(initiator_id=initiator_id, record_date=record_date, note=note)
+            session.add(record)
+            session.flush()
+
+        item = PurchaseItem(purchase_record_id=record.id, item_name=item_name, amount=amount)
+        session.add(item)
         session.flush()
 
-        total = 0
-        for item_name, amount in items:
-            session.add(
-                PurchaseItem(purchase_record_id=purchase.id, item_name=item_name, amount=amount)
-            )
-            total += amount
-
-        if share_member_ids:
-            share_count = len(share_member_ids)
-            base_share = round(total / share_count)
-            for member_id in share_member_ids:
+        if buyer_member_ids:
+            share_count = len(buyer_member_ids)
+            base_share = round(amount / share_count)
+            for member_id in buyer_member_ids:
                 session.add(
-                    PurchaseShare(
-                        purchase_record_id=purchase.id,
+                    PurchaseItemShare(
+                        purchase_item_id=item.id,
                         member_id=member_id,
                         share_amount=base_share,
                     )
                 )
 
         session.commit()
-        session.refresh(purchase)
-        _ = purchase.items  # 觸發載入，避免 session 關閉後存取觸發 DetachedInstanceError
-        _ = purchase.shares
-        return purchase
+        session.refresh(record)
+        for it in record.items:
+            _ = it.shares  # 觸發載入，避免 session 關閉後存取觸發 DetachedInstanceError
+        return record
+
+
+def toggle_purchase_record_share_payment(record_id: int, member_id: int) -> bool:
+    """把某成員在某張代買卡片裡「所有品項」的分攤付款狀態一次切換成同一值：
+    目前有任何未付款就整張卡片對這個人設成已付款；已全部付款則改回未付款（供復原）。
+    僅本人可操作。回傳切換後的狀態。
+    """
+    with get_session() as session:
+        shares = (
+            session.query(PurchaseItemShare)
+            .join(PurchaseItem, PurchaseItem.id == PurchaseItemShare.purchase_item_id)
+            .filter(
+                PurchaseItem.purchase_record_id == record_id,
+                PurchaseItemShare.member_id == member_id,
+            )
+            .all()
+        )
+        if not shares:
+            raise ValueError("查無分攤紀錄")
+
+        new_status = not all(s.is_paid for s in shares)
+        for s in shares:
+            s.is_paid = new_status
+        session.commit()
+        return new_status
 
 
 def delete_purchase_record(record_id: int, member_id: int) -> None:
@@ -262,10 +295,13 @@ def get_month_payable_by_initiator(member_id: int, year: int, month: int) -> dic
     """該成員本月要付給各發起人的金額，依已付/未付分開加總：{initiator_id: {"paid": x, "unpaid": y}}。"""
     with get_session() as session:
         rows = (
-            session.query(PurchaseRecord.initiator_id, PurchaseShare.share_amount, PurchaseShare.is_paid)
-            .join(PurchaseShare, PurchaseShare.purchase_record_id == PurchaseRecord.id)
+            session.query(
+                PurchaseRecord.initiator_id, PurchaseItemShare.share_amount, PurchaseItemShare.is_paid
+            )
+            .join(PurchaseItem, PurchaseItem.purchase_record_id == PurchaseRecord.id)
+            .join(PurchaseItemShare, PurchaseItemShare.purchase_item_id == PurchaseItem.id)
             .filter(
-                PurchaseShare.member_id == member_id,
+                PurchaseItemShare.member_id == member_id,
                 extract("year", PurchaseRecord.record_date) == year,
                 extract("month", PurchaseRecord.record_date) == month,
             )
@@ -306,11 +342,10 @@ def get_month_purchase_records(year: int, month: int) -> list[PurchaseRecord]:
             .all()
         )
         for r in records:
-            _ = r.items
-            _ = r.shares
             _ = r.initiator
-            for s in r.shares:
-                _ = s.member
+            for item in r.items:
+                for s in item.shares:
+                    _ = s.member
         return records
 
 
@@ -321,14 +356,15 @@ def get_member_monthly_summary(member_id: int, year: int, month: int) -> dict:
 
     with get_session() as session:
         purchase_subtotal = (
-            session.query(PurchaseShare)
-            .join(PurchaseRecord)
+            session.query(PurchaseItemShare)
+            .join(PurchaseItem, PurchaseItem.id == PurchaseItemShare.purchase_item_id)
+            .join(PurchaseRecord, PurchaseRecord.id == PurchaseItem.purchase_record_id)
             .filter(
-                PurchaseShare.member_id == member_id,
+                PurchaseItemShare.member_id == member_id,
                 extract("year", PurchaseRecord.record_date) == year,
                 extract("month", PurchaseRecord.record_date) == month,
             )
-            .with_entities(PurchaseShare.share_amount)
+            .with_entities(PurchaseItemShare.share_amount)
             .all()
         )
         purchase_subtotal = sum(s[0] for s in purchase_subtotal)
@@ -358,11 +394,12 @@ def get_monthly_unpaid_count(member_id: int, year: int | None = None, month: int
             .count()
         )
         share_unpaid = (
-            session.query(PurchaseShare)
-            .join(PurchaseRecord)
+            session.query(PurchaseItemShare)
+            .join(PurchaseItem, PurchaseItem.id == PurchaseItemShare.purchase_item_id)
+            .join(PurchaseRecord, PurchaseRecord.id == PurchaseItem.purchase_record_id)
             .filter(
-                PurchaseShare.member_id == member_id,
-                PurchaseShare.is_paid.is_(False),
+                PurchaseItemShare.member_id == member_id,
+                PurchaseItemShare.is_paid.is_(False),
                 extract("year", PurchaseRecord.record_date) == year,
                 extract("month", PurchaseRecord.record_date) == month,
             )

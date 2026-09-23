@@ -195,22 +195,24 @@
     <input type="date" name="record_date" value="{{ selected_date.isoformat() if selected_date else '' }}" required>
     <input type="text" name="item_name" placeholder="項目（例如：蛋餅）" required>
     <input type="number" name="item_amount" placeholder="金額" required><br>
-    <input type="text" name="note" placeholder="備註（選填）" style="width:100%;"><br>
+    <input type="text" name="note" placeholder="備註（選填，僅新增當天第一筆時生效）" style="width:100%;"><br>
     <div>
-      分攤對象（不選＝只是自己記一筆，不用別人付款）：
+      這個品項的購買人（不選＝只是自己記一筆，不用別人付款）：
       {% for m in members if m.id != current_member.id %}
-      <label><input type="checkbox" name="share_member_id" value="{{ m.id }}"> {{ m.name }}</label>
+      <label><input type="checkbox" name="buyer_member_id" value="{{ m.id }}"> {{ m.name }}</label>
       {% endfor %}
     </div>
     <button type="submit">新增一筆</button>
+    <p style="color: var(--text-dim); font-size: 12px; margin-top:4px;">同一天、同一位代買人的品項會自動合併到同一張卡片；每個品項可以指定不同的購買人。</p>
   </form>
 </div>
 
 <div class="card">
   {% for r in purchase_records %}
+  {% set record_subtotal = r.items | sum(attribute='amount') %}
   <div class="card" style="background: var(--card-bg-alt);">
-    <p style="display:flex; justify-content:space-between; align-items:center; margin:0 0 6px;">
-      <span><strong>{{ r.record_date }}</strong> — 代買人：{{ r.initiator.name }}{% if r.note %} — 備註：{{ r.note }}{% endif %}</span>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <strong>{{ r.record_date }}　代買人：{{ r.initiator.name }}{% if r.note %}　備註：{{ r.note }}{% endif %}</strong>
       {% if r.initiator_id == current_member.id %}
       <form class="inline" method="post" action="{{ url_for('purchase_delete', record_id=r.id) }}">
         <input type="hidden" name="year" value="{{ year }}">
@@ -218,34 +220,51 @@
         <button type="submit" class="secondary">刪除</button>
       </form>
       {% endif %}
-    </p>
-    <ul>
+    </div>
+
+    <table style="margin-top:8px;">
       {% for item in r.items %}
-      <li>{{ item.item_name }}：{{ item.amount }} 元</li>
-      {% endfor %}
-    </ul>
-    {% if r.shares %}
-    <table>
-      <tr><th>分攤人</th><th>應付金額</th><th>付款狀態</th><th>操作</th></tr>
-      {% for s in r.shares %}
       <tr>
-        <td>{{ s.member.name }}</td>
-        <td>{{ s.share_amount }}</td>
-        <td>{{ "已付款" if s.is_paid else "未付款" }}</td>
+        <td>{{ item.item_name }}</td>
+        <td style="text-align:right;">${{ item.amount }}</td>
+        <td style="color: var(--text-dim); font-size: 12px;">
+          {% if item.shares %}購買人：{{ item.shares | map(attribute='member.name') | join('、') }}{% else %}僅自己記錄{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <th>小計</th>
+        <th style="text-align:right;">${{ record_subtotal }}</th>
+        <th></th>
+      </tr>
+    </table>
+
+    {% set buyers = r.buyer_summary %}
+    {% if buyers %}
+    <table style="margin-top:8px;">
+      <tr><th>購買人</th><th>購買小計</th><th>付款狀態</th></tr>
+      {% for buyer, amount, paid in buyers %}
+      <tr>
+        <td>{{ buyer.name }}</td>
+        <td>${{ amount }}</td>
         <td>
-          {% if s.member_id == current_member.id %}
-          <form class="inline" method="post" action="{{ url_for('purchase_share_pay', share_id=s.id) }}">
+          {% if buyer.id == current_member.id %}
+          <form class="inline" method="post" action="{{ url_for('purchase_pay_mine', record_id=r.id) }}">
             <input type="hidden" name="year" value="{{ year }}">
             <input type="hidden" name="month" value="{{ month }}">
-            <button type="submit" class="secondary">{{ "標記未付款" if s.is_paid else "標記已付款" }}</button>
+            <button type="submit" class="secondary" style="color: {{ 'var(--accent-teal)' if paid else 'var(--accent-red)' }};">
+              {{ "已付款（點擊取消）" if paid else "未付款（點擊標記已付款）" }}
+            </button>
           </form>
+          {% else %}
+          <span style="color: {{ 'var(--accent-teal)' if paid else 'var(--accent-red)' }};">{{ "已付款" if paid else "未付款" }}</span>
           {% endif %}
         </td>
       </tr>
       {% endfor %}
     </table>
     {% else %}
-    <p style="color: var(--text-dim); font-size: 13px;">僅自己記錄，無人需要分攤。</p>
+    <p style="color: var(--text-dim); font-size: 13px; margin-top:8px;">僅自己記錄，無人需要分攤。</p>
     {% endif %}
   </div>
   {% else %}

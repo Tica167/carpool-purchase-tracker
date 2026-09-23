@@ -12,7 +12,7 @@ from holidays import get_holidays, has_holiday_data
 from models import CarpoolRecord, Member
 from services import (
     add_member,
-    create_purchase_record,
+    add_purchase_item,
     delete_purchase_record,
     get_effective_carpool_amount,
     get_member_monthly_summary,
@@ -30,6 +30,7 @@ from services import (
     set_day_status,
     toggle_month_carpool_payment_status,
     toggle_payment_status,
+    toggle_purchase_record_share_payment,
 )
 
 app = Flask(__name__)
@@ -327,12 +328,10 @@ def purchase_add():
     item_name = request.form.get("item_name", "").strip()
     item_amount = request.form.get("item_amount", "").strip()
     note = request.form.get("note", "").strip() or None
-    share_member_ids = [int(mid) for mid in request.form.getlist("share_member_id")]
+    buyer_member_ids = [int(mid) for mid in request.form.getlist("buyer_member_id")]
 
     if item_name and item_amount:
-        create_purchase_record(
-            member.id, record_date, [(item_name, int(item_amount))], share_member_ids, note
-        )
+        add_purchase_item(member.id, record_date, item_name, int(item_amount), buyer_member_ids, note)
 
     return redirect(url_for("dashboard", year=year, month=month))
 
@@ -349,14 +348,14 @@ def purchase_delete(record_id):
     return redirect(url_for("dashboard", year=year, month=month))
 
 
-@app.route("/dashboard/purchase/share/<int:share_id>/pay", methods=["POST"])
-def purchase_share_pay(share_id):
+@app.route("/dashboard/purchase/<int:record_id>/pay-mine", methods=["POST"])
+def purchase_pay_mine(record_id):
     member = current_member()
     year = request.form.get("year", type=int)
     month = request.form.get("month", type=int)
     try:
-        toggle_payment_status("purchase_share", share_id, member.id)
-    except (ValueError, PermissionError):
+        toggle_purchase_record_share_payment(record_id, member.id)
+    except ValueError:
         abort(403)
     return redirect(url_for("dashboard", year=year, month=month))
 

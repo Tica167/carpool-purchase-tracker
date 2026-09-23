@@ -73,9 +73,20 @@ class PurchaseRecord(Base):
     items: Mapped[list["PurchaseItem"]] = relationship(
         back_populates="purchase_record", cascade="all, delete-orphan"
     )
-    shares: Mapped[list["PurchaseShare"]] = relationship(
-        back_populates="purchase_record", cascade="all, delete-orphan"
-    )
+
+    @property
+    def buyer_summary(self) -> list[tuple["Member", int, bool]]:
+        """把這張代買卡片底下「每個品項各自的購買人分攤」彙總成「每位購買人」的
+        小計金額與付款狀態（該購買人在這張卡片裡所有品項分攤都已付款才算已付款）。
+        供畫面顯示卡片下方的購買人彙總表格使用。
+        """
+        totals: dict[int, dict] = {}
+        for item in self.items:
+            for s in item.shares:
+                bucket = totals.setdefault(s.member_id, {"member": s.member, "amount": 0, "paid": []})
+                bucket["amount"] += s.share_amount
+                bucket["paid"].append(s.is_paid)
+        return [(b["member"], b["amount"], all(b["paid"])) for b in totals.values()]
 
 
 class PurchaseItem(Base):
@@ -89,18 +100,23 @@ class PurchaseItem(Base):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
 
     purchase_record: Mapped["PurchaseRecord"] = relationship(back_populates="items")
+    shares: Mapped[list["PurchaseItemShare"]] = relationship(
+        back_populates="purchase_item", cascade="all, delete-orphan"
+    )
 
 
-class PurchaseShare(Base):
-    __tablename__ = "purchase_shares"
+class PurchaseItemShare(Base):
+    """代買品項的購買人分攤：每個品項各自的購買人可以不同，金額由該品項金額
+    平均分攤給該品項指定的購買人（購買人可留空，代表這個品項僅代買人自己的花費）。
+    """
+
+    __tablename__ = "purchase_item_shares"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    purchase_record_id: Mapped[int] = mapped_column(
-        ForeignKey("purchase_records.id"), nullable=False
-    )
+    purchase_item_id: Mapped[int] = mapped_column(ForeignKey("purchase_items.id"), nullable=False)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), nullable=False)
     share_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    purchase_record: Mapped["PurchaseRecord"] = relationship(back_populates="shares")
+    purchase_item: Mapped["PurchaseItem"] = relationship(back_populates="shares")
     member: Mapped["Member"] = relationship()
