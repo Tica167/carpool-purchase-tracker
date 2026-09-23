@@ -7,7 +7,7 @@
 - **做了什麼**：第一次 commit 時被 Claude Code 的自動安全機制擋下（判定為「Credential Leakage」，因為 `OWNER_PASSWORD` 的預設值直接寫死在 `app.py` 原始碼裡）。改為：`OWNER_PASSWORD` 不再有寫死的預設值（未設定時一律拒絕車主登入並提示尚未設定）；新增 `python-dotenv` 依賴，本機建立不會進 git 的 `.env` 檔提供密碼；已重新在瀏覽器驗證本機登入正常運作
 - **為什麼**：即使是內部小工具用的簡單密碼，把密碼字串直接寫進會進 git 的原始碼仍是不好的習慣（尤其這個 repo 雖是 private，但密碼未來若要換、或不小心公開，寫死在程式碼裡最難處理）
 - **影響檔案**：`app.py`, `requirements.txt`, `.env`（新增，不進 git）
-- **Git**：⏸ 未版控（此筆與上面兩筆一起在下方 commit）
+- **Git**：✅ 已 commit `b032b8b`
 - **文件同步**：✅ 已同步（SDD.md 更新環境變數表與說明）
 
 ## 2026-09-24 01:30 — 新增請假/居家狀態標示 + 車主登入密碼
@@ -20,7 +20,7 @@
   - 已在瀏覽器實測：密碼錯誤擋下、正確密碼登入、Hugo 標記請假且同時勾選共乘互不影響、Tina 查看 Hugo 時能看到請假狀態但看不到共乘明細、車主查看他人時仍可看到完整明細
 - **為什麼**：使用者希望請假/居家狀態能讓大家提前看到、避免車主白等；並希望車主帳號因為權限較大（可看全部人共乘明細、管理成員）而多一層密碼保護
 - **影響檔案**：`models.py`, `services.py`, `app.py`, `templates/login.html`, `templates/dashboard.html`, `templates/base.html`
-- **Git**：⏸ 未版控
+- **Git**：✅ 已 commit `b032b8b`
 - **文件同步**：✅ 已於下一筆同步（PRD.md、SDD.md 都已更新）
 
 ## 2026-09-24 01:45 — 同步 PRD/SDD：請假/居家狀態、車主密碼
@@ -30,7 +30,7 @@
   - SDD.md：§3 補上 `MemberDayStatus` 模型與 `set_day_status()`/`get_month_day_status()`、`app.py` 的權限判斷（`can_edit`/`can_view_rides`/車主密碼比對）；§4.2 新增 `member_day_status` 資料表；§5 更新頁面結構、視覺風格（補紫/黃色）、核心互動流程（查看成員開放給所有人、日曆標色優先順序、面板依權限顯示）；§6 API 新增 `/dashboard/status/save`、更新登入路由說明；§7 新增密碼錯誤與隱私阻擋兩列錯誤處理，文件版本 1.4 → 1.5，對應 PRD 版本更新為 1.2
 - **為什麼**：讓文件反映最新的請假/居家狀態功能與車主密碼保護機制
 - **影響檔案**：`PRD.md`, `SDD.md`
-- **Git**：⏸ 未版控
+- **Git**：✅ 已 commit `b032b8b`
 - **文件同步**：✅ 本筆即為文件同步
 
 ## 2026-09-24 01:00 — 更新 HANDOFF.md 反映雲端部署現況
