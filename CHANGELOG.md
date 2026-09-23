@@ -2,12 +2,25 @@
 
 > 由 prd-sdd-studio skill 自動維護。最新紀錄在最上方。
 
+## 2026-09-23 23:30 — 準備雲端部署（Render + 外部永久 PostgreSQL）
+
+- **做了什麼**：
+  - `database.py`：改為優先讀取環境變數 `DATABASE_URL`（有設定就接雲端 PostgreSQL，自動把 `postgres://` 轉成 SQLAlchemy 需要的 `postgresql://`）；沒有設定時（本機開發）沿用原本的本機 SQLite 檔案，行為不變
+  - `app.py`：`secret_key` 改為可用環境變數 `SECRET_KEY` 覆蓋（本機沒設定時沿用原預設值）；`init_db()` 改成在模組載入時就執行（不只在 `python app.py` 直接執行時才跑），因為部署到 Render 後是用 gunicorn 載入 `app` 模組，不會經過 `if __name__ == "__main__"` 那段
+  - `requirements.txt`：新增 `gunicorn`（正式環境用的 WSGI 伺服器，取代 Flask 內建的開發用伺服器）、`psycopg2-binary`（連接 PostgreSQL 需要的驅動）
+  - 新增 `Procfile`，告訴 Render 用 `gunicorn app:app --bind 0.0.0.0:$PORT` 啟動
+  - 已在本機驗證：改動後本機仍照舊用本機 SQLite 正常運作，既有的真實成員資料不受影響
+- **為什麼**：使用者要把系統分享給其他 4 位不一定在同一個網路環境的成員使用，需要部署到大家都連得到的地方。查證後發現 Render 免費方案的 Web Service 硬碟不持久（重啟/重新部署就清空）、免費 PostgreSQL 30 天會過期，因此改接外部免費且不過期的 PostgreSQL（Neon）來保存資料
+- **影響檔案**：`database.py`, `app.py`, `requirements.txt`, `Procfile`（新增）
+- **Git**：⏸ 未版控
+- **文件同步**：⏸ 未同步（SDD 技術選型/部署方式因此改變，待補充）
+
 ## 2026-09-23 23:00 — 新增 HANDOFF.md 交接文件
 
 - **做了什麼**：建立 `HANDOFF.md`，整理專案現況（成員名單、啟動方式、技術棧、已知風險與限制、下一步方向），供未來接手或開新對話時快速接續
 - **為什麼**：使用者要求整理一份 handoff 文件存到專案資料夾
 - **影響檔案**：`HANDOFF.md`
-- **Git**：⏸ 未版控
+- **Git**：✅ 已 commit `f130d07`
 - **文件同步**：➖ 不適用
 
 ## 2026-09-23 22:40 — 同步 PRD/SDD 至最新功能（備註、代買可留空、假日標示）

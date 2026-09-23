@@ -5,8 +5,21 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from models import Base, Member
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "carpool_purchase.db")
-engine = create_engine(f"sqlite:///{DB_PATH}")
+
+def _build_engine():
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        # Render/Neon 給的連線字串可能是 postgres://，SQLAlchemy 2.x 需要 postgresql://
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        return create_engine(database_url)
+
+    # 沒有設定 DATABASE_URL 時（本機開發），沿用本機 SQLite 檔案
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "carpool_purchase.db")
+    return create_engine(f"sqlite:///{db_path}")
+
+
+engine = _build_engine()
 SessionLocal = sessionmaker(bind=engine)
 
 INITIAL_MEMBERS = [

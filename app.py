@@ -1,4 +1,5 @@
 import calendar as calendar_lib
+import os
 from datetime import date, datetime
 
 from flask import Flask, abort, redirect, render_template, request, session, url_for
@@ -20,7 +21,8 @@ from services import (
 )
 
 app = Flask(__name__)
-app.secret_key = "carpool-purchase-tracker-dev-secret"
+app.secret_key = os.environ.get("SECRET_KEY", "carpool-purchase-tracker-dev-secret")
+init_db()
 
 PERIOD_LABELS = {"morning": "上班", "evening": "下班"}
 
@@ -233,5 +235,4 @@ def members_delete(member_id):
 
 
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, port=5050)
