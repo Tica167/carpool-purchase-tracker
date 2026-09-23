@@ -15,6 +15,7 @@ from services import (
     add_member,
     create_purchase_record,
     get_member_monthly_summary,
+    get_month_all_day_status,
     get_month_carpool_records,
     get_month_day_status,
     get_month_purchase_records,
@@ -133,6 +134,34 @@ def dashboard():
 
     day_status = get_month_day_status(view_member.id, year, month)
 
+    # 日曆上彙總顯示的請假/居家狀態：
+    # - 車主查看自己 → 一次看到所有人的狀態
+    # - 一般成員查看自己 → 看自己的狀態 + 車主的狀態（車主請假/居家會影響大家，故自動出現在自己頁面上）
+    # - 查看別人（透過下拉切換）→ 只顯示該成員的狀態
+    all_day_status = get_month_all_day_status(year, month)
+    owner = next((m for m in members if m.is_owner), None)
+    member_name_by_id = {m.id: m.name for m in members}
+
+    day_status_display: dict[date, list[tuple[str, str]]] = {}
+    if can_edit and member.is_owner:
+        for d, entries in all_day_status.items():
+            day_status_display[d] = [
+                (member_name_by_id.get(mid, "?"), status) for mid, status in entries.items()
+            ]
+    elif can_edit:
+        for d, entries in all_day_status.items():
+            items = []
+            if member.id in entries:
+                items.append((member.name, entries[member.id]))
+            if owner and owner.id != member.id and owner.id in entries:
+                items.append((owner.name, entries[owner.id]))
+            if items:
+                day_status_display[d] = items
+    else:
+        for d, entries in all_day_status.items():
+            if view_member.id in entries:
+                day_status_display[d] = [(view_member.name, entries[view_member.id])]
+
     purchase_records = get_month_purchase_records(year, month)
     purchase_subtotal_all = sum(
         item.amount for r in purchase_records for item in r.items if r.initiator_id == member.id
@@ -160,6 +189,7 @@ def dashboard():
         weeks=weeks,
         records_by_day=records_by_day,
         day_status=day_status,
+        day_status_display=day_status_display,
         day_status_labels=DAY_STATUS_LABELS,
         holidays=holidays,
         holiday_data_available=holiday_data_available,

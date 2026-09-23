@@ -3,10 +3,10 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.5 |
+| 文件版本 | 1.6 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
-| 對應 PRD 版本 | 1.2 |
+| 對應 PRD 版本 | 1.3 |
 | 文件狀態 | 設計中 |
 
 ---
@@ -75,6 +75,7 @@
   - `set_carpool_slot(member_id, record_date, period, active, note)` — 依點選日曆的操作開/關某一天某時段的共乘紀錄，並同步備註（`active=True` 且尚未登記則新增，已登記則更新備註；`active=False` 則刪除）
   - `set_day_status(member_id, record_date, status)` — 設定/清除成員某天的請假(`leave`)/居家(`wfh`)狀態，`status=None` 代表清除；跟 `set_carpool_slot` 互不影響，可同時設定
   - `get_month_day_status(member_id, year, month)` — 回傳該成員當月的請假/居家狀態字典，供日曆標色（此函數不限本人查詢，因為該狀態全員互相可見）
+  - `get_month_all_day_status(year, month)` — 回傳當月「所有成員」的請假/居家狀態（`{日期: {member_id: status}}`），供 `app.py` 組出彙總顯示（車主看全部、一般成員自動看到車主）
   - `create_purchase_record(initiator_id, date, items, share_member_ids, note)` — `share_member_ids` 可為空清單，代表僅自己記錄、不建立任何 `PurchaseShare`
   - `toggle_payment_status(record_type, record_id, member_id)`
   - `get_month_carpool_records(member_id, year, month)` / `get_month_purchase_records(year, month)`
@@ -198,7 +199,8 @@ purchase_records 1 ──── * purchase_shares
 3. 「查看成員」下拉選單開放給所有人（不限車主），可切換查看任何成員的日曆。
 4. 共乘日曆以 ISO 8601 週別呈現整月：
    - 若 `can_view_rides`：每天格子以圓點標示是否有上班/下班共乘、是否有備註。
-   - 每天格子一律顯示（不受 `can_view_rides` 限制）：若當天是政府公告的國定假日/補假，以粉色標示並顯示假日名稱；若該成員當天標記請假，以紫色標示「請假」；若標記居家，以黃色標示「居家」（假日、請假、居家三者互斥顯示，優先順序：假日 > 請假/居家）。
+   - 每天格子一律顯示（不受 `can_view_rides` 限制）：若當天是政府公告的國定假日/補假，格子底色以粉色標示並顯示假日名稱；請假/居家狀態則以「成員名：狀態」文字列出（可多筆），格子底色依是否有人請假/居家標紫/黃（優先順序：假日底色 > 請假 > 居家）。
+     - **彙總規則**：查看自己的頁面時——若登入者是車主，列出「當天所有成員」的請假/居家狀態；若是一般成員，列出「自己」+「車主」（若車主當天有狀態）兩者。透過下拉切換查看他人時，只列出該成員自己的狀態。
    - 點擊日期在下方開啟面板：
      - 若查看對象是本人：顯示請假/居家狀態下拉選單（正常／請假／居家）+ 儲存按鈕；顯示可勾選的上班/下班切換框、備註輸入框、「儲存共乘」按鈕（兩者互不影響，可同時設定）；已登記的時段另外顯示付款狀態按鈕（僅本人可點擊標記已付款）。
      - 若查看對象是他人：面板標示「唯讀」。一律顯示該成員的請假/居家狀態文字；若 `can_view_rides`（車主查看）則額外顯示共乘明細與付款狀態文字，否則顯示「共乘打卡明細僅本人與車主可見」。
@@ -213,7 +215,7 @@ purchase_records 1 ──── * purchase_shares
 |------|------|------|--------------------|
 | `/` | GET | 顯示身份選擇頁 | - |
 | `/login/<member_id>` | POST | 設定 Session 身份；若為車主須比對 `password` 表單欄位與 `OWNER_PASSWORD` | - |
-| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_purchase_records()`、`get_holidays()`、`has_holiday_data()` |
+| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_holidays()`、`has_holiday_data()` |
 | `/dashboard/carpool/save` | POST | 儲存選定日期的上班/下班開關與備註 | `set_carpool_slot()` |
 | `/dashboard/status/save` | POST | 儲存選定日期的請假/居家狀態（限本人） | `set_day_status()` |
 | `/dashboard/carpool/<id>/pay` | POST | 標記共乘紀錄已付款（限本人） | `toggle_payment_status()` |

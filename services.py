@@ -76,6 +76,25 @@ def get_month_day_status(member_id: int, year: int, month: int) -> dict[date, st
         return {r.record_date: r.status for r in records}
 
 
+def get_month_all_day_status(year: int, month: int) -> dict[date, dict[int, str]]:
+    """回傳當月「所有成員」的請假/居家狀態：{日期: {member_id: status}}。
+    用於車主自己頁面一次彙總看所有人狀態，以及讓車主的請假/居家自動出現在其他成員自己的頁面上。
+    """
+    with get_session() as session:
+        records = (
+            session.query(MemberDayStatus)
+            .filter(
+                extract("year", MemberDayStatus.record_date) == year,
+                extract("month", MemberDayStatus.record_date) == month,
+            )
+            .all()
+        )
+        result: dict[date, dict[int, str]] = {}
+        for r in records:
+            result.setdefault(r.record_date, {})[r.member_id] = r.status
+        return result
+
+
 def toggle_payment_status(record_type: str, record_id: int, member_id: int) -> bool:
     with get_session() as session:
         if record_type == "carpool":

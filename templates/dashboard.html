@@ -64,13 +64,19 @@
       {% for day in week %}
       {% set day_records = records_by_day.get(day, {}) %}
       {% set holiday_name = holidays.get(day) %}
-      {% set day_stat = day_status.get(day) %}
-      <td class="calendar-cell{% if day.month != month %} muted{% endif %}{% if day == selected_date %} selected{% endif %}{% if holiday_name %} holiday{% endif %}{% if day_stat %} status-{{ day_stat }}{% endif %}">
+      {% set day_stat_list = day_status_display.get(day, []) %}
+      {% set day_stat_statuses = day_stat_list | map(attribute=1) | list %}
+      {% set cell_status = 'leave' if 'leave' in day_stat_statuses else ('wfh' if 'wfh' in day_stat_statuses else None) %}
+      <td class="calendar-cell{% if day.month != month %} muted{% endif %}{% if day == selected_date %} selected{% endif %}{% if holiday_name %} holiday{% endif %}{% if cell_status %} status-{{ cell_status }}{% endif %}">
         {% if day.month == month %}
         <a href="{{ url_for('dashboard', year=year, month=month, view_member_id=view_member.id, date=day.isoformat()) }}" {% if holiday_name %}title="{{ holiday_name }}"{% endif %}>
           <div class="calendar-day-num">{{ day.day }}</div>
           {% if holiday_name %}<div class="calendar-holiday-name">{{ holiday_name }}</div>{% endif %}
-          {% if day_stat and not holiday_name %}<div class="calendar-status-name">{{ day_status_labels[day_stat] }}</div>{% endif %}
+          {% if day_stat_list and not holiday_name %}
+          {% for name, status in day_stat_list %}
+          <div class="calendar-status-name">{{ name }}：{{ day_status_labels[status] }}</div>
+          {% endfor %}
+          {% endif %}
           <div class="calendar-dots">
             {% if 'morning' in day_records %}<span class="dot morning" title="上班共乘"></span>{% endif %}
             {% if 'evening' in day_records %}<span class="dot evening" title="下班共乘"></span>{% endif %}
