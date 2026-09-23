@@ -1,29 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
 
-{% if can_view_rides %}
+{% if current_member.is_owner %}
+<div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+  <span>本月結算 — 車資總覽（{{ current_member.name }}）</span>
+  <span>每趟車資 ${{ carpool_amount }}</span>
+</div>
+
+{% for name, ride_count, carpool_subtotal in member_ride_summaries %}
+<div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
+  <div class="stat-card">
+    <div class="stat-label">{{ name }} 共乘趟數</div>
+    <div class="stat-value">{{ ride_count }} 趟</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">{{ name }} 車資本月應付總計</div>
+    <div class="stat-value stat-total">${{ carpool_subtotal }}</div>
+  </div>
+</div>
+{% endfor %}
+{% elif can_view_rides %}
 <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
   <span>本月結算 — {{ view_member.name }}</span>
   <span>每趟車資 ${{ carpool_amount }}</span>
 </div>
 
-<div class="stat-grid">
+<div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
   <div class="stat-card">
     <div class="stat-label">共乘趟數</div>
     <div class="stat-value">{{ summary.ride_count }} 趟</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">車資小計</div>
-    <div class="stat-value">${{ summary.carpool_subtotal }}</div>
+    <div class="stat-label">車資本月應付總計</div>
+    <div class="stat-value stat-total">${{ summary.carpool_subtotal }}</div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">代買小計</div>
-    <div class="stat-value">${{ summary.purchase_subtotal }}</div>
-  </div>
-</div>
-<div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-  <strong>車資本月應付總計</strong>
-  <span class="stat-value stat-total">${{ summary.carpool_subtotal }}</span>
 </div>
 {% else %}
 <div class="card">

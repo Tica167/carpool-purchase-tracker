@@ -131,6 +131,16 @@ def dashboard():
         carpool_records = []
         summary = {"ride_count": 0, "carpool_subtotal": 0, "purchase_subtotal": 0, "total": 0}
 
+    # 頂部車資總覽：車主固定看「所有一般成員」各自的趟數+車資應付總計（不受下拉切換影響）；
+    # 一般成員查看自己時，只看自己這一行。
+    member_ride_summaries: list[tuple[str, int, int]] = []
+    if member.is_owner:
+        for m in members:
+            if m.is_owner:
+                continue
+            s = get_member_monthly_summary(m.id, year, month)
+            member_ride_summaries.append((m.name, s["ride_count"], s["carpool_subtotal"]))
+
     records_by_day: dict[date, dict[str, CarpoolRecord]] = {}
     for r in carpool_records:
         records_by_day.setdefault(r.record_date, {})[r.period] = r
@@ -209,6 +219,7 @@ def dashboard():
         period_labels=PERIOD_LABELS,
         carpool_amount=CARPOOL_AMOUNT,
         summary=summary,
+        member_ride_summaries=member_ride_summaries,
         purchase_records=purchase_records,
         subtotal_by_initiator=subtotal_by_initiator,
         payable_by_initiator=payable_by_initiator,
