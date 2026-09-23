@@ -3,7 +3,7 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.2 |
+| 文件版本 | 1.3 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
 | 對應 PRD 版本 | 1.1 |
@@ -32,8 +32,9 @@
 - 程式語言：Python 3.x
 - Web 框架：**Flask + Jinja2 HTML Templates**
 - 資料處理：不需要 Pandas，直接以 SQLAlchemy 查詢彙總即可
-- 資料庫：SQLite（單一檔案 `carpool_purchase.db`）
+- 資料庫：本機開發用 SQLite（單一檔案 `carpool_purchase.db`）；雲端部署時可透過環境變數 `DATABASE_URL` 切換為 PostgreSQL，程式碼不需要修改（見 §8 部署與運維）
 - 資料庫 ORM：SQLAlchemy
+- 正式環境 Web 伺服器：**gunicorn**（取代 Flask 內建的開發用伺服器，本機開發仍用 `python app.py` 即可）
 
 ---
 
@@ -60,7 +61,7 @@
 ## 3. 核心模組設計
 
 ### `database.py`
-- **職責**：建立 SQLAlchemy engine、Session，提供 `init_db()` 初始化資料表。資料庫檔案路徑以本檔案自身所在目錄組出絕對路徑（`os.path.dirname(os.path.abspath(__file__))`），不依賴程式啟動時的工作目錄，避免透過捷徑/不同路徑啟動時，資料庫被建立在錯誤的位置。
+- **職責**：建立 SQLAlchemy engine、Session，提供 `init_db()` 初始化資料表。engine 依環境變數 `DATABASE_URL` 決定連線目標：有設定就連該網址（雲端部署時指向 PostgreSQL，並自動把 `postgres://` 轉成 SQLAlchemy 需要的 `postgresql://`）；沒設定則沿用本機 SQLite，檔案路徑以本檔案自身所在目錄組出絕對路徑（`os.path.dirname(os.path.abspath(__file__))`），不依賴程式啟動時的工作目錄，避免透過捷徑/不同路徑啟動時，資料庫被建立在錯誤的位置。
 - **核心功能**：`init_db()`、`get_session()`。
 
 ### `models.py`
@@ -92,7 +93,7 @@
 ## 4. 資料庫設計
 
 ### 4.1 資料庫選型
-SQLite，單一檔案資料庫，無需安裝伺服器，適合 5 人內部小工具的規模。
+本機開發用 SQLite，單一檔案資料庫，無需安裝伺服器，適合 5 人內部小工具的規模。雲端部署（見 §8）改用 PostgreSQL（Neon 免費方案），因為部署平台的容器硬碟通常不持久（重啟/重新部署會清空），SQLite 檔案放上去會遺失資料；改用外部管理的 PostgreSQL 才能長期保留歷史紀錄。兩者的資料表結構完全相同，切換只靠 `DATABASE_URL` 環境變數，不需要改程式碼。
 
 ### 4.2 資料表設計
 
@@ -212,7 +213,36 @@ purchase_records 1 ──── * purchase_shares
 
 ---
 
-## 8. 實作路徑 (Implementation Roadmap)
+## 8. 部署與運維
+
+### 8.1 本機開發
+```bash
+"venv\Scripts\python.exe" app.py
+```
+不設定 `DATABASE_URL` 時，直接用本機 SQLite 檔案 `carpool_purchase.db`，適合單人開發測試，或單機使用不需要多人跨網路連線的情境（雙擊 `啟動系統.bat`）。
+
+### 8.2 雲端部署（多成員跨網路使用）
+因為使用者不一定都在同一個內部網路，系統改為部署到雲端讓大家都能連到。採用的組合：
+
+| 用途 | 服務 | 說明 |
+|------|------|------|
+| 程式碼託管 | GitHub（private repo） | Render 從這裡讀取程式碼自動部署 |
+| 應用程式主機 | Render（免費 Web Service） | 執行 `gunicorn app:app --bind 0.0.0.0:$PORT`（見 `Procfile`） |
+| 資料庫 | Neon（免費 PostgreSQL，永久不過期） | 透過 `DATABASE_URL` 環境變數連接 |
+
+**環境變數設定（在 Render 後台設定，不寫進程式碼或 git）：**
+| 變數名稱 | 說明 | 範例值 |
+|----------|------|--------|
+| `DATABASE_URL` | Neon 提供的連線字串 | `postgresql://user:password@xxx.neon.tech/dbname?sslmode=require` |
+| `SECRET_KEY` | Flask session 加密金鑰，正式環境務必自訂 | 任意一串隨機亂碼 |
+
+**為什麼不能直接把 SQLite 檔案放上 Render 免費方案：** Render 免費 Web Service 的容器硬碟不持久，服務閒置 15 分鐘會睡眠、下次連線喚醒或每次重新部署都會清空檔案系統，SQLite 資料庫檔案會跟著消失。Render 自己的免費 PostgreSQL 則是 30 天會過期（14 天寬限期後刪除）。因此改接外部、免費且不過期的 Neon PostgreSQL 來保存資料。
+
+**已知限制：** Render 免費方案閒置 15 分鐘會睡眠，之後第一個連線的人要等約 1 分鐘喚醒，這是正常現象。
+
+---
+
+## 9. 實作路徑 (Implementation Roadmap)
 
 **此章節為 AI Coding Agent 的執行指南，請依序完成每個階段。**
 
@@ -229,7 +259,10 @@ python -m venv venv
 ```
 flask
 SQLAlchemy
+gunicorn
+psycopg2-binary
 ```
+（`gunicorn`、`psycopg2-binary` 是雲端部署才會用到；本機開發用 SQLite 不會實際載入 psycopg2）
 
 ```bash
 pip install -r requirements.txt
@@ -241,6 +274,12 @@ venv/
 __pycache__/
 *.pyc
 *.db
+.env
+```
+
+`Procfile`（供 Render 等平台辨識啟動指令）：
+```
+web: gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
 ### 階段 2：資料庫模組開發
@@ -273,7 +312,7 @@ __pycache__/
 
 ### 階段 6：文件與部署
 - 建立 `README.md`，說明如何啟動系統。
-- 最終確認：
+- 本機最終確認：
 ```bash
 # 啟動應用
 python app.py
@@ -281,5 +320,6 @@ python app.py
 # 開啟瀏覽器訪問
 # http://localhost:5050
 ```
+- 若需要跨網路多人使用，依 §8 部署與運維：推上 GitHub → 在 Render 建立 Web Service（連 GitHub repo，環境變數設定 `DATABASE_URL`／`SECRET_KEY`）→ 用 Neon 建立永久 PostgreSQL 資料庫並取得連線字串。
 
-**預期產出：** 5 位成員皆可透過手機或電腦瀏覽器，完成共乘與代買明細的登記、查看與付款狀態標記，系統可交付日常使用。
+**預期產出：** 5 位成員皆可透過手機或電腦瀏覽器（無論是否在同一網路），完成共乘與代買明細的登記、查看與付款狀態標記，系統可交付日常使用。
