@@ -9,17 +9,24 @@
 
 用 `prd-sdd-studio` 這個 Claude Code skill 開發：先用 AI 顧問角色（完整專案模式）收斂需求生成 PRD，再用 AI 架構師角色（精簡版模式）生成 SDD 定技術方案，最後依 SDD 拆解成 6 個任務並一步步把程式碼寫出來。**全程沒有呼叫任何外部 LLM API**，大腦就是 Claude 自己。
 
-## 目前狀態：開發已完成，可直接使用
+## 目前狀態：開發已完成，已部署上雲端，可直接使用
 
 - `TASK.md`：6 / 6 任務全部完成（環境建置→資料庫→業務邏輯→介面→整合測試→文件）
-- 已實機驗證：登入身份切換、共乘日曆點選開關+備註+付款標記、代買多品項/分攤/純自己記錄三種情境、車主查看他人時唯讀、成員管理新增刪除、月結未付款提示，全部正常運作
-- Git：已初始化，目前 2 個 commit（`master` 分支）
+- 已實機驗證（本機與雲端都測過）：登入身份切換、共乘日曆點選開關+備註+付款標記、代買多品項/分攤/純自己記錄三種情境、車主查看他人時唯讀、成員管理新增刪除、月結未付款提示、國定假日粉色標示、資料庫容量提醒，全部正常運作
+- Git：已初始化並推上 GitHub（`master` 分支），目前 8 個 commit
   ```
+  69dd109 docs: 回填 CHANGELOG 的 commit hash
+  c1ab676 feat: 新增 Neon 資料庫容量不足提醒
+  ee11cd2 docs: 回填 CHANGELOG 的 commit hash
+  fc4d5dc docs: 同步 SDD 部署章節（Render + Neon 雲端部署）
+  8924bfb feat: 支援雲端部署（環境變數連 PostgreSQL、gunicorn）
+  f130d07 docs: 新增 HANDOFF.md 交接文件
   e315b3a docs: 回填 CHANGELOG 的 commit hash
   6973f83 [TASK-001~006] 共乘與代買明細管理系統：初版建置與迭代
   ```
+- GitHub repo：https://github.com/Tica167/carpool-purchase-tracker（private）
 - Working tree 乾淨，沒有未版控的改動
-- 資料庫已清乾淨：5 位真實成員（下方），0 筆歷史紀錄（先前的測試資料與孤兒紀錄已確認並刪除）
+- 資料庫（本機與雲端）都已清乾淨：5 位真實成員（下方），0 筆歷史紀錄（先前的測試資料與孤兒紀錄已確認並刪除）
 
 ## 成員名單（真實成員，非佔位名稱）
 
@@ -33,30 +40,39 @@
 
 登入方式：開啟系統後直接點選自己的名字即可，不需密碼。
 
-## 怎麼啟動
+## 怎麼使用
 
-雙擊 **`啟動系統.bat`**（會自動用虛擬環境啟動 Flask 伺服器並開啟瀏覽器），或手動執行：
+**其他成員（Tina/Blue/Mango/Rennie）平常直接用雲端版即可**，不需要安裝任何東西：
+> https://carpool-purchase-tracker.onrender.com/
+
+⚠️ Render 免費方案閒置 15 分鐘會睡眠，之後第一個連線的人要等約 1 分鐘喚醒，這是正常現象。
+
+**本機開發/測試**：雙擊 **`啟動系統.bat`**（會自動用虛擬環境啟動 Flask 伺服器並開啟瀏覽器），或手動執行：
 ```bash
 "venv\Scripts\python.exe" app.py
 ```
-開啟瀏覽器訪問 `http://localhost:5050`。
+開啟瀏覽器訪問 `http://localhost:5050`。本機模式用本機 SQLite 資料庫，跟雲端版的 Neon 資料庫是**分開的兩份資料**，不會互相同步。
 
 ## 技術棧與檔案結構
 
-Python 3 + Flask + Jinja2 Templates + SQLite + SQLAlchemy（依賴裝在 `venv/`，`.gitignore` 已排除 `venv/`、`*.db`、`__pycache__/`）。全站採用深色「簡潔文青」風格，共乘與代買整合在單一 `/dashboard` 儀表板頁面操作。
+Python 3 + Flask + Jinja2 Templates + SQLAlchemy，資料庫本機用 SQLite、雲端用 PostgreSQL（透過 `DATABASE_URL` 環境變數切換，程式碼不用改）。正式環境用 `gunicorn` 當 WSGI 伺服器。全站採用深色「簡潔文青」風格，共乘與代買整合在單一 `/dashboard` 儀表板頁面操作。
+
+**雲端部署組合**：GitHub（程式碼）→ Render（免費 Web Service，跑 `gunicorn`）→ Neon（免費永久 PostgreSQL）。詳見 `SDD.md` §8。
 
 | 檔案／資料夾 | 用途 |
 |---|---|
 | `PRD.md` | 產品需求文件（v1.1） |
-| `SDD.md` | 設計文件（v1.2，含資料表/API/實作路徑） |
+| `SDD.md` | 設計文件（v1.4，含資料表/API/部署方式/實作路徑） |
 | `TASK.md` | 開發任務清單，6/6 完成 |
 | `CHANGELOG.md` | 完整變更歷史，最新在最上方 |
 | `app.py` | Flask 路由（身份選擇、儀表板、成員管理） |
-| `database.py` / `models.py` / `services.py` | 資料層（DB 路徑不依賴工作目錄）／ORM 模型／業務邏輯 |
+| `database.py` / `models.py` / `services.py` | 資料層（本機/雲端資料庫切換、容量提醒）／ORM 模型／業務邏輯 |
 | `holidays.py` + `data/holidays/*.json` | 中華民國政府行政機關辦公日曆表資料（目前有 2026、2027 年） |
 | `templates/` | 4 個頁面：登入、儀表板（共乘日曆+代買記錄整合）、成員管理，共用 `base.html` |
 | `docs/diagrams/` | 概念架構圖、技術架構圖（`.puml` + `.png`） |
-| `啟動系統.bat` | 雙擊快速啟動（純英文訊息，避免中文編碼在某些電腦上亂碼） |
+| `啟動系統.bat` | 雙擊快速啟動本機版（純英文訊息，避免中文編碼在某些電腦上亂碼） |
+| `Procfile` | 告訴 Render 用 `gunicorn app:app --bind 0.0.0.0:$PORT` 啟動 |
+| `.env`（不存在於 repo，本機自行建立/管理） | 若要在本機也連雲端資料庫測試，可設定 `DATABASE_URL`／`SECRET_KEY` 環境變數，`.gitignore` 已排除避免誤 commit |
 
 ## 已知風險與限制（誠實列出，非藉口）
 
@@ -64,6 +80,8 @@ Python 3 + Flask + Jinja2 Templates + SQLite + SQLAlchemy（依賴裝在 `venv/`
 - 沒有系統性測試邊界案例（例如跨年月份切換、超大金額、超長備註文字）
 - **成員管理刪除成員時，不會檢查該成員名下是否還有共乘/代買紀錄**——若車主刪除一個仍有歷史紀錄的成員，會產生「孤兒紀錄」（畫面顯示空白姓名），這在開發過程中真實發生過一次並已手動清除。使用者已知悉此限制，目前決定不修正（見 CHANGELOG 2026-09-23 22:20）
 - 假日資料目前只到 2027 年；查看沒有資料的年度時，畫面會提示「尚未有資料更新」但不會自動連網查詢或下載（政府公告連結每年網址都不同、含隨機雜湊值，無法程式化自動抓取，需要人工/由 Claude 協助抓一次）
+- Neon 免費方案空間上限約 0.5GB，剩餘容量低於 0.1GB 時畫面會顯示紅色警示（`get_storage_warning()`），但**不會自動刪除任何資料**，只是提醒；以目前 5 人團體的資料量估算，實際觸發這個警示大概需要數百年，非急迫風險
+- Render 免費方案閒置 15 分鐘會睡眠，喚醒需要約 1 分鐘；若之後覺得等待很煩，可考慮升級成付費方案（免睡眠）
 
 ## 之後想繼續開發，怎麼做
 
