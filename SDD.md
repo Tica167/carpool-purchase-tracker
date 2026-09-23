@@ -3,7 +3,7 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.3 |
+| 文件版本 | 1.4 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
 | 對應 PRD 版本 | 1.1 |
@@ -62,7 +62,7 @@
 
 ### `database.py`
 - **職責**：建立 SQLAlchemy engine、Session，提供 `init_db()` 初始化資料表。engine 依環境變數 `DATABASE_URL` 決定連線目標：有設定就連該網址（雲端部署時指向 PostgreSQL，並自動把 `postgres://` 轉成 SQLAlchemy 需要的 `postgresql://`）；沒設定則沿用本機 SQLite，檔案路徑以本檔案自身所在目錄組出絕對路徑（`os.path.dirname(os.path.abspath(__file__))`），不依賴程式啟動時的工作目錄，避免透過捷徑/不同路徑啟動時，資料庫被建立在錯誤的位置。
-- **核心功能**：`init_db()`、`get_session()`。
+- **核心功能**：`init_db()`、`get_session()`、`get_storage_warning()`（僅雲端 PostgreSQL 適用，見 §8.2）。
 
 ### `models.py`
 - **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、代買紀錄、代買品項、代買分攤）。
@@ -239,6 +239,9 @@ purchase_records 1 ──── * purchase_shares
 **為什麼不能直接把 SQLite 檔案放上 Render 免費方案：** Render 免費 Web Service 的容器硬碟不持久，服務閒置 15 分鐘會睡眠、下次連線喚醒或每次重新部署都會清空檔案系統，SQLite 資料庫檔案會跟著消失。Render 自己的免費 PostgreSQL 則是 30 天會過期（14 天寬限期後刪除）。因此改接外部、免費且不過期的 Neon PostgreSQL 來保存資料。
 
 **已知限制：** Render 免費方案閒置 15 分鐘會睡眠，之後第一個連線的人要等約 1 分鐘喚醒，這是正常現象。
+
+### 8.3 資料庫容量監控
+Neon 免費方案空間上限約 0.5GB。`database.py` 的 `get_storage_warning()` 透過 PostgreSQL 內建的 `pg_database_size(current_database())` 查詢目前用量，剩餘容量低於 0.1GB 時回傳提醒文字；`app.py` 每次請求都會檢查（透過 `inject_common()` context processor），畫面上方顯示紅色警示 banner。這個機制**只提醒、不會自動刪除任何資料**，只在連 PostgreSQL 時生效，本機 SQLite 模式沒有這個限制、不會檢查。以目前 5 人團體的資料量估算，實際觸發這個警示大概需要數百年，屬於安全網性質，非急迫風險。
 
 ---
 

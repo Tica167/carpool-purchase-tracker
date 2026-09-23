@@ -51,6 +51,11 @@
       margin-bottom: 16px;
       font-size: 14px;
     }
+    .banner.banner-danger {
+      background: rgba(224, 104, 95, 0.15);
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
 
     .error { color: var(--accent-red); margin-bottom: 8px; font-size: 14px; }
 
@@ -144,6 +149,9 @@
   {% if monthly_unpaid > 0 %}
   <div class="banner">本月尚未結算：目前還有 {{ monthly_unpaid }} 筆未付款紀錄，記得對帳付款喔！</div>
   {% endif %}
+  {% endif %}
+  {% if storage_warning %}
+  <div class="banner banner-danger">⚠️ {{ storage_warning }}</div>
   {% endif %}
 
   {% block content %}{% endblock %}

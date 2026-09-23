@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from flask import Flask, abort, redirect, render_template, request, session, url_for
 
-from database import get_session, init_db
+from database import get_session, get_storage_warning, init_db
 from holidays import get_holidays, has_holiday_data
 from models import CarpoolRecord, Member
 from services import (
@@ -47,7 +47,11 @@ def require_login():
 def inject_common():
     member = current_member()
     unpaid = get_monthly_unpaid_count(member.id) if member else 0
-    return {"current_member": member, "monthly_unpaid": unpaid}
+    return {
+        "current_member": member,
+        "monthly_unpaid": unpaid,
+        "storage_warning": get_storage_warning(),
+    }
 
 
 def _month_weeks(year: int, month: int) -> list[list[date]]:
