@@ -17,6 +17,8 @@
       --accent-orange: #f0a35e;
       --accent-red: #e0685f;
       --accent-pink: #f28fb0;
+      --accent-purple: #b98cf0;
+      --accent-yellow: #e8d35e;
     }
 
     * { box-sizing: border-box; }
@@ -99,10 +101,17 @@
     td.calendar-cell.holiday { background: rgba(242, 143, 176, 0.16); }
     td.calendar-cell.holiday .calendar-day-num,
     td.calendar-cell.holiday .calendar-holiday-name { color: var(--accent-pink); }
+    td.calendar-cell.status-leave:not(.holiday) { background: rgba(185, 140, 240, 0.18); }
+    td.calendar-cell.status-leave:not(.holiday) .calendar-day-num { color: var(--accent-purple); }
+    td.calendar-cell.status-wfh:not(.holiday) { background: rgba(232, 211, 94, 0.18); }
+    td.calendar-cell.status-wfh:not(.holiday) .calendar-day-num { color: var(--accent-yellow); }
     .calendar-day-num { font-weight: 600; margin-bottom: 4px; }
     .calendar-holiday-name { font-size: 10px; line-height: 1.2; margin-bottom: 2px; }
+    .calendar-status-name { font-size: 10px; line-height: 1.2; margin-bottom: 2px; }
     .calendar-dots { display: flex; gap: 3px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.leave { background: var(--accent-purple); }
+    .dot.wfh { background: var(--accent-yellow); }
     .dot.morning { background: var(--accent-teal); }
     .dot.evening { background: var(--accent-blue); }
     .dot.note { background: var(--accent-orange); }

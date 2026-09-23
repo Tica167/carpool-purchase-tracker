@@ -3,7 +3,9 @@ from datetime import date, datetime
 from sqlalchemy import extract
 
 from database import get_session
-from models import CarpoolRecord, Member, PurchaseItem, PurchaseRecord, PurchaseShare
+from models import CarpoolRecord, Member, MemberDayStatus, PurchaseItem, PurchaseRecord, PurchaseShare
+
+DAY_STATUS_CHOICES = ("leave", "wfh")
 
 CARPOOL_AMOUNT = 30
 
@@ -34,6 +36,44 @@ def set_carpool_slot(
         elif record is not None:
             session.delete(record)
         session.commit()
+
+
+def set_day_status(member_id: int, record_date: date, status: str | None) -> None:
+    """設定/清除成員某天的請假/居家狀態。status 為 None 代表清除（恢復正常）。
+    跟共乘打卡紀錄互不影響，可以同時存在。
+    """
+    if status is not None and status not in DAY_STATUS_CHOICES:
+        raise ValueError("未知的狀態")
+
+    with get_session() as session:
+        record = (
+            session.query(MemberDayStatus)
+            .filter_by(member_id=member_id, record_date=record_date)
+            .first()
+        )
+        if status is None:
+            if record is not None:
+                session.delete(record)
+        elif record is None:
+            session.add(MemberDayStatus(member_id=member_id, record_date=record_date, status=status))
+        else:
+            record.status = status
+        session.commit()
+
+
+def get_month_day_status(member_id: int, year: int, month: int) -> dict[date, str]:
+    """回傳該成員當月的請假/居家狀態，供日曆標色使用。團隊所有成員互相可見。"""
+    with get_session() as session:
+        records = (
+            session.query(MemberDayStatus)
+            .filter(
+                MemberDayStatus.member_id == member_id,
+                extract("year", MemberDayStatus.record_date) == year,
+                extract("month", MemberDayStatus.record_date) == month,
+            )
+            .all()
+        )
+        return {r.record_date: r.status for r in records}
 
 
 def toggle_payment_status(record_type: str, record_id: int, member_id: int) -> bool:

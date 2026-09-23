@@ -3,10 +3,10 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.4 |
+| 文件版本 | 1.5 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
-| 對應 PRD 版本 | 1.1 |
+| 對應 PRD 版本 | 1.2 |
 | 文件狀態 | 設計中 |
 
 ---
@@ -35,6 +35,7 @@
 - 資料庫：本機開發用 SQLite（單一檔案 `carpool_purchase.db`）；雲端部署時可透過環境變數 `DATABASE_URL` 切換為 PostgreSQL，程式碼不需要修改（見 §8 部署與運維）
 - 資料庫 ORM：SQLAlchemy
 - 正式環境 Web 伺服器：**gunicorn**（取代 Flask 內建的開發用伺服器，本機開發仍用 `python app.py` 即可）
+- 環境變數管理：**python-dotenv**，本機用 `.env` 檔（不進 git）提供密碼等機密設定；雲端則由 Render 環境變數提供，不透過 `.env`
 
 ---
 
@@ -65,13 +66,15 @@
 - **核心功能**：`init_db()`、`get_session()`、`get_storage_warning()`（僅雲端 PostgreSQL 適用，見 §8.2）。
 
 ### `models.py`
-- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、代買紀錄、代買品項、代買分攤）。
-- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`PurchaseRecord`（含 `note` 備註欄位）、`PurchaseItem`、`PurchaseShare` 五個模型類別。
+- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、代買紀錄、代買品項、代買分攤、請假/居家狀態）。
+- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`MemberDayStatus`（成員請假/居家狀態，`member_id`+`record_date` 唯一）、`PurchaseRecord`（含 `note` 備註欄位）、`PurchaseItem`、`PurchaseShare` 六個模型類別。
 
 ### `services.py`
-- **職責**：封裝所有業務邏輯（開關單一時段的共乘紀錄、新增代買與分攤、計算月結金額與統計、切換付款狀態、判斷本月是否已結算）。
+- **職責**：封裝所有業務邏輯（開關單一時段的共乘紀錄、設定請假/居家狀態、新增代買與分攤、計算月結金額與統計、切換付款狀態、判斷本月是否已結算）。
 - **核心功能**：
   - `set_carpool_slot(member_id, record_date, period, active, note)` — 依點選日曆的操作開/關某一天某時段的共乘紀錄，並同步備註（`active=True` 且尚未登記則新增，已登記則更新備註；`active=False` 則刪除）
+  - `set_day_status(member_id, record_date, status)` — 設定/清除成員某天的請假(`leave`)/居家(`wfh`)狀態，`status=None` 代表清除；跟 `set_carpool_slot` 互不影響，可同時設定
+  - `get_month_day_status(member_id, year, month)` — 回傳該成員當月的請假/居家狀態字典，供日曆標色（此函數不限本人查詢，因為該狀態全員互相可見）
   - `create_purchase_record(initiator_id, date, items, share_member_ids, note)` — `share_member_ids` 可為空清單，代表僅自己記錄、不建立任何 `PurchaseShare`
   - `toggle_payment_status(record_type, record_id, member_id)`
   - `get_month_carpool_records(member_id, year, month)` / `get_month_purchase_records(year, month)`
@@ -87,6 +90,10 @@
 
 ### `app.py`
 - **職責**：Flask 主程式，定義所有路由，串接 `services.py`，渲染對應的 HTML Template。
+- **權限判斷**：
+  - 車主登入需比對密碼（環境變數 `OWNER_PASSWORD`，程式碼內**沒有寫死的預設值**，避免密碼進 git；本機開發用 `.env` 檔提供，雲端部署則在 Render 環境變數設定；未設定時一律拒絕車主登入並提示尚未設定），一般成員不需要。
+  - `can_edit`：目前查看的成員是否為登入者本人（只有本人能編輯自己的共乘/請假居家紀錄）。
+  - `can_view_rides`：`can_edit` 或登入者是車主——只有這種情況才會撈出/顯示共乘打卡明細與金額；請假/居家狀態則不受此限制，一律撈出顯示。
 
 ---
 
@@ -115,6 +122,16 @@
 | is_paid | BOOLEAN | 是否已付款 | 預設 False |
 | note | TEXT | 備註 | 可為 NULL |
 | created_at | DATETIME | 建立時間 | |
+
+**Table: `member_day_status`**
+| 欄位名稱 | 資料型態 | 說明 | 備註 |
+|----------|----------|------|------|
+| id | INTEGER | 唯一識別碼 | 主鍵，自動遞增 |
+| member_id | INTEGER | 成員（外鍵） | 參照 `members.id` |
+| record_date | DATE | 日期 | |
+| status | TEXT | 狀態：`leave`（請假）/ `wfh`（居家） | |
+
+> `(member_id, record_date)` 唯一約束，同一人同一天只能有一種狀態。此表**不受共乘紀錄的隱私規則限制**——所有成員查詢任何人的這張表都不需要權限檢查，因為請假/居家狀態設計為團隊互相可見。
 
 **Table: `purchase_records`**
 | 欄位名稱 | 資料型態 | 說明 | 備註 |
@@ -149,6 +166,7 @@
 ### 4.3 資料關聯
 ```
 members 1 ──── * carpool_records
+members 1 ──── * member_day_status
 members 1 ──── * purchase_records (as initiator)
 members 1 ──── * purchase_shares (as sharer)
 purchase_records 1 ──── * purchase_items
@@ -167,21 +185,25 @@ purchase_records 1 ──── * purchase_shares
 ### 5.1 頁面結構
 | 頁面 | 路徑 | 說明 |
 |------|------|------|
-| 選擇身份 | `/` | 列出 5 位成員供點選登入 |
-| 共乘與代買儀表板 | `/dashboard` | 單一整合頁面：本人本月統計卡片、共乘日曆（點日期開編輯面板）、代買記錄（快速新增＋清單）；車主可透過下拉選單切換查看其他成員（唯讀） |
+| 選擇身份 | `/` | 列出 5 位成員供點選登入；車主額外顯示密碼輸入框 |
+| 共乘與代買儀表板 | `/dashboard` | 單一整合頁面：本人本月統計卡片、共乘日曆（點日期開編輯面板）、代買記錄（快速新增＋清單）；**所有人**皆可透過下拉選單切換查看任何成員（查看他人時，共乘明細受 `can_view_rides` 權限限制，請假/居家狀態不受限） |
 | 成員管理 | `/members`（僅車主可見） | 新增/刪除成員 |
 
 ### 5.2 視覺風格
-全站採用深色「簡潔文青」風格：深色背景（`--bg: #17181a`）、卡片式版面（圓角、細邊框），強調色使用 teal（上班共乘）、blue（下班共乘）、orange（備註/總計金額）三色區分不同語意，統一定義在 `base.html` 的 CSS 變數中，方便日後調整配色而不用逐頁修改。
+全站採用深色「簡潔文青」風格：深色背景（`--bg: #17181a`）、卡片式版面（圓角、細邊框），強調色使用 teal（上班共乘）、blue（下班共乘）、orange（備註/總計金額）、pink（國定假日）、**purple（請假）、yellow（居家）** 區分不同語意，統一定義在 `base.html` 的 CSS 變數中，方便日後調整配色而不用逐頁修改。
 
 ### 5.3 核心互動流程
-1. 首頁點選姓名 → 導向 `/dashboard`，若當月有未付款紀錄，頁面上方顯示提示區塊「本月尚未結算」。
-2. 儀表板頂部顯示登入者本人（或車主切換查看的成員）當月統計：共乘趟數、車資小計、代買小計（作為分攤人應付的金額）、應付總計。
-3. 共乘日曆以 ISO 8601 週別呈現整月，每天格子以圓點標示是否有上班/下班共乘、是否有備註；若該日期是政府公告的國定假日/補假，格子與日期數字以粉色標示並顯示假日名稱（hover 顯示完整名稱）。點擊日期會在下方開啟編輯面板：
-   - 若查看對象是本人：顯示可勾選的上班/下班切換框、備註輸入框、「儲存」按鈕；已登記的時段另外顯示付款狀態按鈕（僅本人可點擊標記已付款）。
-   - 若查看對象是他人（僅車主可切換）：面板標示「唯讀」，只顯示當天的登記與付款狀態文字，不提供編輯表單。
+1. 首頁點選姓名 → 一般成員直接登入；車主需輸入密碼，錯誤則停在登入頁顯示「密碼錯誤」。登入成功導向 `/dashboard`，若當月有未付款紀錄，頁面上方顯示提示區塊「本月尚未結算」。
+2. 儀表板頂部：若 `can_view_rides`（查看自己，或車主查看任何人）為真，顯示當月統計卡片（共乘趟數、車資小計、代買小計、應付總計）；否則顯示提示文字，說明共乘明細屬隱私僅本人與車主可查看。
+3. 「查看成員」下拉選單開放給所有人（不限車主），可切換查看任何成員的日曆。
+4. 共乘日曆以 ISO 8601 週別呈現整月：
+   - 若 `can_view_rides`：每天格子以圓點標示是否有上班/下班共乘、是否有備註。
+   - 每天格子一律顯示（不受 `can_view_rides` 限制）：若當天是政府公告的國定假日/補假，以粉色標示並顯示假日名稱；若該成員當天標記請假，以紫色標示「請假」；若標記居家，以黃色標示「居家」（假日、請假、居家三者互斥顯示，優先順序：假日 > 請假/居家）。
+   - 點擊日期在下方開啟面板：
+     - 若查看對象是本人：顯示請假/居家狀態下拉選單（正常／請假／居家）+ 儲存按鈕；顯示可勾選的上班/下班切換框、備註輸入框、「儲存共乘」按鈕（兩者互不影響，可同時設定）；已登記的時段另外顯示付款狀態按鈕（僅本人可點擊標記已付款）。
+     - 若查看對象是他人：面板標示「唯讀」。一律顯示該成員的請假/居家狀態文字；若 `can_view_rides`（車主查看）則額外顯示共乘明細與付款狀態文字，否則顯示「共乘打卡明細僅本人與車主可見」。
    - 若該年度尚無假日資料檔（`holidays.has_holiday_data(year)` 為 False）：在日曆卡片與點選日期的面板都顯示提示文字「尚未有 {{年度}} 年度政府行政機關辦公日曆表資料更新」，其餘功能不受影響。
-4. 代買記錄區塊提供快速新增表單（日期、品項、金額、備註、分攤對象——分攤對象可不選，代表僅自己記錄），送出後即時出現在下方清單；清單所有人皆可見，分攤人若是目前登入者可點擊標記已付款。
+5. 代買記錄區塊提供快速新增表單（日期、品項、金額、備註、分攤對象——分攤對象可不選，代表僅自己記錄），送出後即時出現在下方清單；清單所有人皆可見，分攤人若是目前登入者可點擊標記已付款。
 
 ---
 
@@ -190,9 +212,10 @@ purchase_records 1 ──── * purchase_shares
 | 路由 | 方法 | 功能 | 對應 service 函數 |
 |------|------|------|--------------------|
 | `/` | GET | 顯示身份選擇頁 | - |
-| `/login/<member_id>` | POST | 設定 Session 身份 | - |
-| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_purchase_records()`、`get_holidays()`、`has_holiday_data()` |
+| `/login/<member_id>` | POST | 設定 Session 身份；若為車主須比對 `password` 表單欄位與 `OWNER_PASSWORD` | - |
+| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_purchase_records()`、`get_holidays()`、`has_holiday_data()` |
 | `/dashboard/carpool/save` | POST | 儲存選定日期的上班/下班開關與備註 | `set_carpool_slot()` |
+| `/dashboard/status/save` | POST | 儲存選定日期的請假/居家狀態（限本人） | `set_day_status()` |
 | `/dashboard/carpool/<id>/pay` | POST | 標記共乘紀錄已付款（限本人） | `toggle_payment_status()` |
 | `/dashboard/purchase/add` | POST | 新增一筆代買紀錄（單一品項）與分攤（分攤對象可為空） | `create_purchase_record()` |
 | `/dashboard/purchase/share/<id>/pay` | POST | 標記分攤款已付款（限本人） | `toggle_payment_status()` |
@@ -210,6 +233,8 @@ purchase_records 1 ──── * purchase_shares
 | 非車主嘗試存取成員管理頁 | 後端檢查 Session 身份是否為車主 | 導回首頁並顯示提示 |
 | 車主查看他人紀錄時嘗試送出編輯表單 | 頁面上不渲染編輯表單，僅顯示唯讀文字 | 面板標示「唯讀」 |
 | 查看的年度沒有假日資料檔 | `has_holiday_data()` 回傳 False，日曆仍正常顯示，只是不標示假日 | 顯示「尚未有資料更新」提示，不阻斷其他功能 |
+| 車主登入密碼錯誤 | 後端比對失敗，不建立 Session | 停留在登入頁，顯示「密碼錯誤」 |
+| 非本人且非車主查看他人的共乘明細 | 後端直接不撈取該成員的共乘紀錄與統計（`can_view_rides=False` 時回傳空資料），非僅前端隱藏 | 顯示「共乘打卡明細僅本人與車主可見」，但仍顯示該成員的請假/居家狀態 |
 
 ---
 
@@ -235,6 +260,9 @@ purchase_records 1 ──── * purchase_shares
 |----------|------|--------|
 | `DATABASE_URL` | Neon 提供的連線字串 | `postgresql://user:password@xxx.neon.tech/dbname?sslmode=require` |
 | `SECRET_KEY` | Flask session 加密金鑰，正式環境務必自訂 | 任意一串隨機亂碼 |
+| `OWNER_PASSWORD` | 車主登入密碼；程式碼沒有寫死預設值，未設定時車主無法登入 | 自訂的密碼字串 |
+
+**本機開發**：可在專案根目錄建立 `.env` 檔（已被 `.gitignore` 排除，不會進 git）放同樣的變數，`app.py` 啟動時會透過 `python-dotenv` 自動讀取，不需要每次手動 `set` 環境變數。
 
 **為什麼不能直接把 SQLite 檔案放上 Render 免費方案：** Render 免費 Web Service 的容器硬碟不持久，服務閒置 15 分鐘會睡眠、下次連線喚醒或每次重新部署都會清空檔案系統，SQLite 資料庫檔案會跟著消失。Render 自己的免費 PostgreSQL 則是 30 天會過期（14 天寬限期後刪除）。因此改接外部、免費且不過期的 Neon PostgreSQL 來保存資料。
 
@@ -264,8 +292,9 @@ flask
 SQLAlchemy
 gunicorn
 psycopg2-binary
+python-dotenv
 ```
-（`gunicorn`、`psycopg2-binary` 是雲端部署才會用到；本機開發用 SQLite 不會實際載入 psycopg2）
+（`gunicorn`、`psycopg2-binary` 是雲端部署才會用到；本機開發用 SQLite 不會實際載入 psycopg2；`python-dotenv` 用於本機讀取 `.env`）
 
 ```bash
 pip install -r requirements.txt

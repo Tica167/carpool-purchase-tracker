@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% if can_view_rides %}
 <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
   <span>本月結算 — {{ view_member.name }}</span>
   <span>每趟車資 ${{ carpool_amount }}</span>
@@ -24,8 +25,12 @@
   <strong>本月應付總計</strong>
   <span class="stat-value stat-total">${{ summary.total }}</span>
 </div>
+{% else %}
+<div class="card">
+  <p style="color: var(--text-dim); margin:0;">{{ view_member.name }} 的共乘打卡明細與金額屬於隱私，僅本人與車主可查看；但請假/居家狀態團隊皆可互相查看（見下方日曆）。</p>
+</div>
+{% endif %}
 
-{% if current_member.is_owner %}
 <div class="card">
   <form method="get">
     <input type="hidden" name="year" value="{{ year }}">
@@ -38,7 +43,6 @@
     </select>
   </form>
 </div>
-{% endif %}
 
 <div class="card">
   <h2>共乘日曆 <span style="font-size:12px;">(ISO 8601 週別)</span></h2>
@@ -60,11 +64,13 @@
       {% for day in week %}
       {% set day_records = records_by_day.get(day, {}) %}
       {% set holiday_name = holidays.get(day) %}
-      <td class="calendar-cell{% if day.month != month %} muted{% endif %}{% if day == selected_date %} selected{% endif %}{% if holiday_name %} holiday{% endif %}">
+      {% set day_stat = day_status.get(day) %}
+      <td class="calendar-cell{% if day.month != month %} muted{% endif %}{% if day == selected_date %} selected{% endif %}{% if holiday_name %} holiday{% endif %}{% if day_stat %} status-{{ day_stat }}{% endif %}">
         {% if day.month == month %}
         <a href="{{ url_for('dashboard', year=year, month=month, view_member_id=view_member.id, date=day.isoformat()) }}" {% if holiday_name %}title="{{ holiday_name }}"{% endif %}>
           <div class="calendar-day-num">{{ day.day }}</div>
           {% if holiday_name %}<div class="calendar-holiday-name">{{ holiday_name }}</div>{% endif %}
+          {% if day_stat and not holiday_name %}<div class="calendar-status-name">{{ day_status_labels[day_stat] }}</div>{% endif %}
           <div class="calendar-dots">
             {% if 'morning' in day_records %}<span class="dot morning" title="上班共乘"></span>{% endif %}
             {% if 'evening' in day_records %}<span class="dot evening" title="下班共乘"></span>{% endif %}
@@ -82,6 +88,8 @@
     <span><i class="dot evening"></i> 下班共乘</span>
     <span><i class="dot note"></i> 有備註</span>
     <span><i class="dot holiday"></i> 國定假日</span>
+    <span><i class="dot leave"></i> 請假</span>
+    <span><i class="dot wfh"></i> 居家</span>
   </div>
 </div>
 
@@ -93,6 +101,19 @@
   {% endif %}
 
   {% if can_edit %}
+  <form method="post" action="{{ url_for('day_status_save') }}">
+    <input type="hidden" name="record_date" value="{{ selected_date.isoformat() }}">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    請假/居家狀態：
+    <select name="day_status">
+      <option value="" {% if not selected_day_status %}selected{% endif %}>（正常，沒有請假或居家）</option>
+      <option value="leave" {% if selected_day_status == 'leave' %}selected{% endif %}>請假</option>
+      <option value="wfh" {% if selected_day_status == 'wfh' %}selected{% endif %}>居家</option>
+    </select>
+    <button type="submit" class="secondary">儲存狀態</button>
+  </form>
+
   <form method="post" action="{{ url_for('carpool_save') }}">
     <input type="hidden" name="record_date" value="{{ selected_date.isoformat() }}">
     <input type="hidden" name="year" value="{{ year }}">
@@ -100,7 +121,7 @@
     <label><input type="checkbox" name="morning" {% if 'morning' in selected_day_records %}checked{% endif %}> 上班 是否共乘</label><br>
     <label><input type="checkbox" name="evening" {% if 'evening' in selected_day_records %}checked{% endif %}> 下班 是否共乘</label><br>
     <textarea name="note" rows="2" placeholder="簡單備註（例如：改搭公車、同事請假…）">{{ (selected_day_records.values() | list | first).note if selected_day_records else '' }}</textarea><br>
-    <button type="submit">儲存</button>
+    <button type="submit">儲存共乘</button>
   </form>
 
   {% for period, record in selected_day_records.items() %}
@@ -112,11 +133,16 @@
   </form>
   {% endfor %}
   {% else %}
+  <p>請假/居家狀態：{{ day_status_labels[selected_day_status] if selected_day_status else "（正常）" }}</p>
+  {% if can_view_rides %}
   {% for period, record in selected_day_records.items() %}
   <p>{{ period_labels[period] }}：{{ "已付款" if record.is_paid else "未付款" }}{% if record.note %} — 備註：{{ record.note }}{% endif %}</p>
   {% else %}
   <p>這天沒有共乘紀錄。</p>
   {% endfor %}
+  {% else %}
+  <p style="color: var(--text-dim);">共乘打卡明細僅本人與車主可見。</p>
+  {% endif %}
   {% endif %}
 </div>
 {% endif %}

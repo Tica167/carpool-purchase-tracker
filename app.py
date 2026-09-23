@@ -2,7 +2,10 @@ import calendar as calendar_lib
 import os
 from datetime import date, datetime
 
+from dotenv import load_dotenv
 from flask import Flask, abort, redirect, render_template, request, session, url_for
+
+load_dotenv()  # 讀取本機 .env（若存在），不會影響已設定的正式環境變數
 
 from database import get_session, get_storage_warning, init_db
 from holidays import get_holidays, has_holiday_data
@@ -13,18 +16,22 @@ from services import (
     create_purchase_record,
     get_member_monthly_summary,
     get_month_carpool_records,
+    get_month_day_status,
     get_month_purchase_records,
     get_monthly_unpaid_count,
     remove_member,
     set_carpool_slot,
+    set_day_status,
     toggle_payment_status,
 )
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "carpool-purchase-tracker-dev-secret")
+OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "")
 init_db()
 
 PERIOD_LABELS = {"morning": "上班", "evening": "下班"}
+DAY_STATUS_LABELS = {"leave": "請假", "wfh": "居家"}
 
 
 def current_member():
@@ -77,8 +84,20 @@ def login_page():
 def login(member_id):
     with get_session() as db:
         member = db.get(Member, member_id)
+        all_members = db.query(Member).order_by(Member.id).all()
     if member is None:
         abort(404)
+
+    if member.is_owner:
+        if not OWNER_PASSWORD:
+            return render_template(
+                "login.html", members=all_members,
+                error="車主密碼尚未設定（環境變數 OWNER_PASSWORD），請先設定後再登入。",
+            )
+        password = request.form.get("password", "")
+        if password != OWNER_PASSWORD:
+            return render_template("login.html", members=all_members, error="密碼錯誤")
+
     session["member_id"] = member.id
     return redirect(url_for("dashboard"))
 
@@ -94,18 +113,26 @@ def dashboard():
     with get_session() as db:
         members = db.query(Member).order_by(Member.id).all()
 
-    view_member_id = member.id
-    if member.is_owner:
-        view_member_id = request.args.get("view_member_id", type=int) or member.id
+    # 查看成員：現在所有人都可以切換查看對象（請假/居家狀態團隊互相可見）；
+    # 但共乘打卡紀錄與金額只有本人或車主才能看到細節（can_view_rides）。
+    view_member_id = request.args.get("view_member_id", type=int) or member.id
     view_member = next((m for m in members if m.id == view_member_id), member)
     can_edit = view_member.id == member.id
+    can_view_rides = can_edit or member.is_owner
 
-    carpool_records = get_month_carpool_records(view_member.id, year, month)
+    if can_view_rides:
+        carpool_records = get_month_carpool_records(view_member.id, year, month)
+        summary = get_member_monthly_summary(view_member.id, year, month)
+    else:
+        carpool_records = []
+        summary = {"ride_count": 0, "carpool_subtotal": 0, "purchase_subtotal": 0, "total": 0}
+
     records_by_day: dict[date, dict[str, CarpoolRecord]] = {}
     for r in carpool_records:
         records_by_day.setdefault(r.record_date, {})[r.period] = r
 
-    summary = get_member_monthly_summary(view_member.id, year, month)
+    day_status = get_month_day_status(view_member.id, year, month)
+
     purchase_records = get_month_purchase_records(year, month)
     purchase_subtotal_all = sum(
         item.amount for r in purchase_records for item in r.items if r.initiator_id == member.id
@@ -113,6 +140,7 @@ def dashboard():
 
     selected_date = date.fromisoformat(selected_date_str) if selected_date_str else None
     selected_day_records = records_by_day.get(selected_date, {}) if selected_date else {}
+    selected_day_status = day_status.get(selected_date) if selected_date else None
 
     prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
     next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
@@ -126,10 +154,13 @@ def dashboard():
         members=members,
         view_member=view_member,
         can_edit=can_edit,
+        can_view_rides=can_view_rides,
         year=year,
         month=month,
         weeks=weeks,
         records_by_day=records_by_day,
+        day_status=day_status,
+        day_status_labels=DAY_STATUS_LABELS,
         holidays=holidays,
         holiday_data_available=holiday_data_available,
         period_labels=PERIOD_LABELS,
@@ -139,6 +170,7 @@ def dashboard():
         purchase_subtotal_all=purchase_subtotal_all,
         selected_date=selected_date,
         selected_day_records=selected_day_records,
+        selected_day_status=selected_day_status,
         prev_year=prev_year,
         prev_month=prev_month,
         next_year=next_year,
@@ -157,6 +189,24 @@ def carpool_save():
     for period in ("morning", "evening"):
         active = request.form.get(period) == "on"
         set_carpool_slot(member.id, record_date, period, active, note)
+
+    return redirect(
+        url_for("dashboard", year=year, month=month, date=record_date.isoformat())
+    )
+
+
+@app.route("/dashboard/status/save", methods=["POST"])
+def day_status_save():
+    member = current_member()
+    record_date = date.fromisoformat(request.form["record_date"])
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    status = request.form.get("day_status") or None
+
+    try:
+        set_day_status(member.id, record_date, status)
+    except ValueError:
+        abort(400)
 
     return redirect(
         url_for("dashboard", year=year, month=month, date=record_date.isoformat())

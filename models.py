@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -27,6 +27,22 @@ class CarpoolRecord(Base):
     is_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, nullable=False)
+
+    member: Mapped["Member"] = relationship()
+
+
+class MemberDayStatus(Base):
+    """成員某天的請假/居家狀態，跟共乘打卡紀錄互不影響、可同時存在。
+    團隊所有成員互相可見（跟共乘打卡紀錄「自己只能看自己的」不同）。
+    """
+
+    __tablename__ = "member_day_status"
+    __table_args__ = (UniqueConstraint("member_id", "record_date", name="uq_member_day_status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), nullable=False)
+    record_date: Mapped[str] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False)  # "leave" / "wfh"
 
     member: Mapped["Member"] = relationship()
 

@@ -2,11 +2,19 @@
 {% block content %}
 <h1>共乘與代買明細管理系統</h1>
 <p style="color: var(--text-dim);">請選擇你自己的身份登入：</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
 <div class="card">
   {% for m in members %}
+  {% if m.is_owner %}
+  <form class="inline" method="post" action="{{ url_for('login', member_id=m.id) }}" style="display:inline-flex; gap:4px; align-items:center;">
+    <input type="password" name="password" placeholder="車主密碼" style="width:110px;" required>
+    <button type="submit">{{ m.name }}</button>
+  </form>
+  {% else %}
   <form class="inline" method="post" action="{{ url_for('login', member_id=m.id) }}">
     <button type="submit">{{ m.name }}</button>
   </form>
+  {% endif %}
   {% endfor %}
 </div>
 {% endblock %}
