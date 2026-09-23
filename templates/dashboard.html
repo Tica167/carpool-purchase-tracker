@@ -2,9 +2,18 @@
 {% block content %}
 
 {% if current_member.is_owner %}
-<div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-  <span>本月結算 — 車資總覽（{{ current_member.name }}）</span>
-  <span>每趟車資 ${{ carpool_amount }}</span>
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <span>本月結算 — 車資總覽（{{ current_member.name }}）</span>
+    <span>目前每趟車資 ${{ carpool_amount }}</span>
+  </div>
+  <form method="post" action="{{ url_for('carpool_rate_save') }}" style="margin-top:10px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    修改車資：金額 <input type="number" name="amount" value="{{ carpool_amount }}" min="1" style="width:80px;" required>
+    生效日期 <input type="date" name="effective_date" value="{{ today.isoformat() }}" required>
+    <button type="submit" class="secondary">儲存</button>
+  </form>
 </div>
 
 {% for name, ride_count, carpool_subtotal, paid_up in member_ride_summaries %}
@@ -40,7 +49,13 @@
   </div>
   <div class="stat-card">
     <div class="stat-label">付款狀態</div>
-    <div class="stat-value" style="color: {{ 'var(--accent-teal)' if carpool_paid_up else 'var(--accent-red)' }};">{{ "已付款" if carpool_paid_up else "未付款" }}</div>
+    <form method="post" action="{{ url_for('carpool_pay_month') }}">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <button type="submit" class="secondary" style="color: {{ 'var(--accent-teal)' if carpool_paid_up else 'var(--accent-red)' }};">
+        {{ "已付款（點擊取消）" if carpool_paid_up else "未付款（點擊標記已付款）" }}
+      </button>
+    </form>
   </div>
 </div>
 {% else %}

@@ -3,10 +3,10 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.9 |
+| 文件版本 | 2.0 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
-| 對應 PRD 版本 | 1.4 |
+| 對應 PRD 版本 | 1.5 |
 | 文件狀態 | 設計中 |
 
 ---
@@ -14,7 +14,7 @@
 ## 1. 簡介
 
 ### 1.1 專案概述
-本系統供公司內部固定 5 人團體使用，用來記錄每日共乘（早/晚各 30 元）與互相代買（任何人皆可代買並指定分攤對象）的明細，並讓每人自行標記付款狀態，取代過去靠記憶對帳的方式。
+本系統供公司內部固定 5 人團體使用，用來記錄每日共乘（早/晚各一趟，車資可由車主調整）與互相代買（任何人皆可代買並指定分攤對象）的明細，並讓每人自行標記付款狀態，取代過去靠記憶對帳的方式。
 
 ### 1.2 系統目標
 - 讓每筆共乘、代買紀錄在發生當下就能被快速登記。
@@ -66,13 +66,16 @@
 - **核心功能**：`init_db()`、`get_session()`、`get_storage_warning()`（僅雲端 PostgreSQL 適用，見 §8.2）。
 
 ### `models.py`
-- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、代買紀錄、代買品項、代買分攤、請假/居家狀態）。
-- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`MemberDayStatus`（成員請假/居家狀態，`member_id`+`record_date` 唯一）、`PurchaseRecord`（含 `note` 備註欄位）、`PurchaseItem`、`PurchaseShare` 六個模型類別。
+- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、車資費率、代買紀錄、代買品項、代買分攤、請假/居家狀態）。
+- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`CarpoolRate`（車資費率，`effective_date` 唯一）、`MemberDayStatus`（成員請假/居家狀態，`member_id`+`record_date` 唯一）、`PurchaseRecord`（含 `note` 備註欄位）、`PurchaseItem`、`PurchaseShare` 七個模型類別。
 
 ### `services.py`
-- **職責**：封裝所有業務邏輯（開關單一時段的共乘紀錄、設定請假/居家狀態、新增代買與分攤、計算月結金額與統計、切換付款狀態、判斷本月是否已結算）。
+- **職責**：封裝所有業務邏輯（開關單一時段的共乘紀錄、設定車資費率、設定請假/居家狀態、新增代買與分攤、計算月結金額與統計、切換付款狀態、判斷本月是否已結算）。
 - **核心功能**：
-  - `set_carpool_slot(member_id, record_date, period, active, note)` — 依點選日曆的操作開/關某一天某時段的共乘紀錄，並同步備註（`active=True` 且尚未登記則新增，已登記則更新備註；`active=False` 則刪除）
+  - `set_carpool_slot(member_id, record_date, period, active, note)` — 依點選日曆的操作開/關某一天某時段的共乘紀錄，並同步備註（`active=True` 且尚未登記則新增，新增時金額取 `get_effective_carpool_amount(record_date)`；已登記則只更新備註，金額不變；`active=False` 則刪除）
+  - `get_effective_carpool_amount(for_date)` — 回傳某一天登記共乘時應套用的每趟車資：取 `CarpoolRate.effective_date <= for_date` 中最新的一筆金額；從未設定過則回傳預設值 `CARPOOL_AMOUNT`（30）
+  - `set_carpool_rate(effective_date, amount)` — 新增/更新一筆車資費率設定（同一 `effective_date` 已存在就覆蓋金額），僅影響該生效日期之後新登記的紀錄，不追溯修改舊紀錄
+  - `toggle_month_carpool_payment_status(member_id, year, month)` — 一鍵把該成員當月「所有」共乘紀錄的付款狀態設成同一值：目前有任何未付款就整月設為已付款，已全部付款則整月改回未付款（取消結算，供復原）；本月無紀錄則不做事
   - `set_day_status(member_id, record_date, status)` — 設定/清除成員某天的請假(`leave`)/居家(`wfh`)狀態，`status=None` 代表清除；跟 `set_carpool_slot` 互不影響，可同時設定
   - `get_month_day_status(member_id, year, month)` — 回傳該成員當月的請假/居家狀態字典，供日曆標色（此函數不限本人查詢，因為該狀態全員互相可見）
   - `get_month_all_day_status(year, month)` — 回傳當月「所有成員」的請假/居家狀態（`{日期: {member_id: status}}`），供 `app.py` 組出彙總顯示（車主看全部、一般成員自動看到車主）
@@ -123,10 +126,19 @@
 | member_id | INTEGER | 登記人（外鍵） | 參照 `members.id` |
 | record_date | DATE | 搭乘日期 | |
 | period | TEXT | 時段：`morning` / `evening` | 同一天同一時段僅能登記一次 |
-| amount | INTEGER | 金額 | 固定 30 |
+| amount | INTEGER | 金額 | 依登記當時 `get_effective_carpool_amount()` 計算後寫入，不隨後續費率調整而改變 |
 | is_paid | BOOLEAN | 是否已付款 | 預設 False |
 | note | TEXT | 備註 | 可為 NULL |
 | created_at | DATETIME | 建立時間 | |
+
+**Table: `carpool_rates`**
+| 欄位名稱 | 資料型態 | 說明 | 備註 |
+|----------|----------|------|------|
+| id | INTEGER | 唯一識別碼 | 主鍵，自動遞增 |
+| effective_date | DATE | 生效日期 | 唯一（同一天只能有一筆設定，重複設定即覆蓋） |
+| amount | INTEGER | 該生效日期起，每趟共乘的金額 | |
+
+> 車主可新增/更新這張表，僅影響「生效日期之後新登記」的 `carpool_records`；已寫入 `carpool_records.amount` 的舊紀錄不受影響（不追溯）。
 
 **Table: `member_day_status`**
 | 欄位名稱 | 資料型態 | 說明 | 備註 |
@@ -202,7 +214,8 @@ purchase_records 1 ──── * purchase_shares
 2. 儀表板頂部（車資結算區）：
    - **車主登入**：固定顯示「所有一般成員」各自的「共乘趟數」「車資本月應付總計」「付款狀態」，依成員名單順序（Tina、Blue、Mango、Rennie）一行三欄、共 4 行；**不受「查看成員」下拉切換影響**（下拉只影響下方日曆/代買區塊要看誰的）。車主不列自己這一行（車主不需要付車資給自己）。
    - **一般成員查看自己**：顯示自己的「共乘趟數」「車資本月應付總計」「付款狀態」，一行三欄。
-   - **付款狀態**：`get_month_carpool_payment_status(member_id, year, month)` 判斷——本月只要有任何一筆共乘未付款就顯示「未付款」（紅色），全部付清或本月沒有共乘紀錄則顯示「已付款」（綠色）；車主看到的是各成員自己最新標記的結果，即時反映。
+   - **付款狀態**：`get_month_carpool_payment_status(member_id, year, month)` 判斷——本月只要有任何一筆共乘未付款就顯示「未付款」（紅色），全部付清或本月沒有共乘紀錄則顯示「已付款」（綠色）；車主看到的是各成員自己最新標記的結果，即時反映。**查看自己時，這張卡片是一個可點擊的按鈕**：點一次呼叫 `toggle_month_carpool_payment_status()`，把當月所有共乘紀錄一次性標成已付款（或再點一次取消），不需要逐筆點；車主查看自己以外的成員時（4 行總覽）僅唯讀顯示，不能代替別人標記。
+   - **車主可調整車資**：頂部另有一個小表單（僅車主可見），輸入新金額與生效日期後儲存（呼叫 `set_carpool_rate()`）；「目前每趟車資」顯示 `get_effective_carpool_amount(今天)` 的結果，一般成員看到的是唯讀文字。
    - **一般成員查看他人**（`can_view_rides=False`）：顯示隱私提示文字，說明共乘明細屬隱私僅本人與車主可查看。
    - 車資本月應付總計僅計算 `carpool_subtotal`，不含代買金額（代買另外在下方依發起人拆分顯示，見第 5、6 點）。
 3. 「查看成員」下拉選單開放給所有人（不限車主），可切換查看任何成員的日曆。
@@ -227,10 +240,12 @@ purchase_records 1 ──── * purchase_shares
 |------|------|------|--------------------|
 | `/` | GET | 顯示身份選擇頁 | - |
 | `/login/<member_id>` | POST | 設定 Session 身份；若為車主須比對 `password` 表單欄位與 `OWNER_PASSWORD` | - |
-| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單、各發起人小計與應付明細） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_carpool_payment_status()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_month_purchase_subtotal_by_initiator()`、`get_month_payable_by_initiator()`、`get_holidays()`、`has_holiday_data()` |
+| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單、各發起人小計與應付明細） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_carpool_payment_status()`、`get_effective_carpool_amount()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_month_purchase_subtotal_by_initiator()`、`get_month_payable_by_initiator()`、`get_holidays()`、`has_holiday_data()` |
 | `/dashboard/carpool/save` | POST | 儲存選定日期的上班/下班開關與備註 | `set_carpool_slot()` |
 | `/dashboard/status/save` | POST | 儲存選定日期的請假/居家狀態（限本人） | `set_day_status()` |
-| `/dashboard/carpool/<id>/pay` | POST | 標記共乘紀錄已付款（限本人） | `toggle_payment_status()` |
+| `/dashboard/carpool/<id>/pay` | POST | 標記單一共乘紀錄已付款（限本人，日曆點選面板用） | `toggle_payment_status()` |
+| `/dashboard/carpool/pay-month` | POST | 一鍵切換登入者當月「所有」共乘紀錄的付款狀態（限本人） | `toggle_month_carpool_payment_status()` |
+| `/dashboard/carpool-rate/save` | POST | 新增/更新一筆車資費率設定（僅車主） | `set_carpool_rate()` |
 | `/dashboard/purchase/add` | POST | 新增一筆代買紀錄（單一品項）與分攤（分攤對象可為空） | `create_purchase_record()` |
 | `/dashboard/purchase/<id>/delete` | POST | 刪除一筆代買紀錄（限發起人） | `delete_purchase_record()` |
 | `/dashboard/purchase/share/<id>/pay` | POST | 標記分攤款已付款（限本人） | `toggle_payment_status()` |
@@ -251,6 +266,7 @@ purchase_records 1 ──── * purchase_shares
 | 車主登入密碼錯誤 | 後端比對失敗，不建立 Session | 停留在登入頁，顯示「密碼錯誤」 |
 | 非本人且非車主查看他人的共乘明細 | 後端直接不撈取該成員的共乘紀錄與統計（`can_view_rides=False` 時回傳空資料），非僅前端隱藏 | 顯示「共乘打卡明細僅本人與車主可見」，但仍顯示該成員的請假/居家狀態 |
 | 非發起人嘗試刪除代買紀錄 | 後端比對 `initiator_id` 與 Session 身份，拒絕操作 | 回傳 403；頁面上非發起人本來就不會看到「刪除」按鈕 |
+| 非車主嘗試修改車資費率 | 後端檢查 Session 身份是否為車主 | 回傳 403；頁面上非車主本來就看不到「修改車資」表單 |
 
 ---
 

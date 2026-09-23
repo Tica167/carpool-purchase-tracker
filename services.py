@@ -3,11 +3,49 @@ from datetime import date, datetime
 from sqlalchemy import extract
 
 from database import get_session
-from models import CarpoolRecord, Member, MemberDayStatus, PurchaseItem, PurchaseRecord, PurchaseShare
+from models import (
+    CarpoolRate,
+    CarpoolRecord,
+    Member,
+    MemberDayStatus,
+    PurchaseItem,
+    PurchaseRecord,
+    PurchaseShare,
+)
 
 DAY_STATUS_CHOICES = ("leave", "wfh")
 
-CARPOOL_AMOUNT = 30
+CARPOOL_AMOUNT = 30  # 從未設定過任何費率時的預設值
+
+
+def get_effective_carpool_amount(for_date: date) -> int:
+    """回傳「某一天」登記共乘時應套用的每趟車資：取生效日期 <= for_date 中最新的一筆；
+    若車主從未設定過費率，回傳預設值 CARPOOL_AMOUNT。
+    """
+    with get_session() as session:
+        rate = (
+            session.query(CarpoolRate)
+            .filter(CarpoolRate.effective_date <= for_date)
+            .order_by(CarpoolRate.effective_date.desc())
+            .first()
+        )
+        return rate.amount if rate else CARPOOL_AMOUNT
+
+
+def set_carpool_rate(effective_date: date, amount: int) -> None:
+    """新增/更新一筆車資費率設定（僅車主可呼叫，權限檢查在 app.py 做）。
+    只影響「生效日期之後新登記」的共乘紀錄，已登記過的舊紀錄金額不會被追溯修改。
+    """
+    if amount <= 0:
+        raise ValueError("車資金額必須大於 0")
+
+    with get_session() as session:
+        existing = session.query(CarpoolRate).filter_by(effective_date=effective_date).first()
+        if existing:
+            existing.amount = amount
+        else:
+            session.add(CarpoolRate(effective_date=effective_date, amount=amount))
+        session.commit()
 
 
 def set_carpool_slot(
@@ -27,7 +65,7 @@ def set_carpool_slot(
                         member_id=member_id,
                         record_date=record_date,
                         period=period,
-                        amount=CARPOOL_AMOUNT,
+                        amount=get_effective_carpool_amount(record_date),
                         note=note,
                     )
                 )
@@ -174,6 +212,32 @@ def get_month_carpool_payment_status(member_id: int, year: int, month: int) -> b
     """
     records = get_month_carpool_records(member_id, year, month)
     return all(r.is_paid for r in records)
+
+
+def toggle_month_carpool_payment_status(member_id: int, year: int, month: int) -> bool:
+    """一鍵把該成員「當月所有」共乘紀錄的付款狀態都設成同一個值，不用逐筆點：
+    目前只要有任何一筆未付款，就整月一次設成已付款（結算）；
+    若整月已經全部付款，再點一次則整月改回未付款（取消結算，供標記錯誤時復原）。
+    回傳設定後的狀態（True=已付款）。本月沒有任何紀錄時不做任何事，直接回傳 True。
+    """
+    with get_session() as session:
+        records = (
+            session.query(CarpoolRecord)
+            .filter(
+                CarpoolRecord.member_id == member_id,
+                extract("year", CarpoolRecord.record_date) == year,
+                extract("month", CarpoolRecord.record_date) == month,
+            )
+            .all()
+        )
+        if not records:
+            return True
+
+        new_status = not all(r.is_paid for r in records)
+        for r in records:
+            r.is_paid = new_status
+        session.commit()
+        return new_status
 
 
 def get_month_purchase_subtotal_by_initiator(year: int, month: int) -> dict[int, int]:

@@ -47,6 +47,19 @@ class MemberDayStatus(Base):
     member: Mapped["Member"] = relationship()
 
 
+class CarpoolRate(Base):
+    """每趟共乘車資的費率設定，依生效日期區分。新登記的共乘紀錄依「登記日期」
+    對應當時生效（`effective_date` <= 登記日期，取最接近的那筆）的費率計算金額；
+    已經登記過的舊紀錄金額不會被追溯修改。僅車主可以新增/修改費率設定。
+    """
+
+    __tablename__ = "carpool_rates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    effective_date: Mapped[str] = mapped_column(Date, nullable=False, unique=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class PurchaseRecord(Base):
     __tablename__ = "purchase_records"
 

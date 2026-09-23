@@ -11,10 +11,10 @@ from database import get_session, get_storage_warning, init_db
 from holidays import get_holidays, has_holiday_data
 from models import CarpoolRecord, Member
 from services import (
-    CARPOOL_AMOUNT,
     add_member,
     create_purchase_record,
     delete_purchase_record,
+    get_effective_carpool_amount,
     get_member_monthly_summary,
     get_month_all_day_status,
     get_month_carpool_payment_status,
@@ -25,8 +25,10 @@ from services import (
     get_month_purchase_subtotal_by_initiator,
     get_monthly_unpaid_count,
     remove_member,
+    set_carpool_rate,
     set_carpool_slot,
     set_day_status,
+    toggle_month_carpool_payment_status,
     toggle_payment_status,
 )
 
@@ -117,6 +119,8 @@ def dashboard():
 
     with get_session() as db:
         members = db.query(Member).order_by(Member.id).all()
+
+    current_carpool_rate = get_effective_carpool_amount(today)
 
     # 查看成員：現在所有人都可以切換查看對象（請假/居家狀態團隊互相可見）；
     # 但共乘打卡紀錄與金額只有本人或車主才能看到細節（can_view_rides）。
@@ -221,7 +225,8 @@ def dashboard():
         holidays=holidays,
         holiday_data_available=holiday_data_available,
         period_labels=PERIOD_LABELS,
-        carpool_amount=CARPOOL_AMOUNT,
+        carpool_amount=current_carpool_rate,
+        today=today,
         summary=summary,
         carpool_paid_up=carpool_paid_up,
         member_ride_summaries=member_ride_summaries,
@@ -253,6 +258,33 @@ def carpool_save():
     return redirect(
         url_for("dashboard", year=year, month=month, date=record_date.isoformat())
     )
+
+
+@app.route("/dashboard/carpool-rate/save", methods=["POST"])
+def carpool_rate_save():
+    member = current_member()
+    if not member.is_owner:
+        abort(403)
+
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    effective_date = date.fromisoformat(request.form["effective_date"])
+    try:
+        amount = int(request.form["amount"])
+        set_carpool_rate(effective_date, amount)
+    except ValueError:
+        abort(400)
+
+    return redirect(url_for("dashboard", year=year, month=month))
+
+
+@app.route("/dashboard/carpool/pay-month", methods=["POST"])
+def carpool_pay_month():
+    member = current_member()
+    year = int(request.form["year"])
+    month = int(request.form["month"])
+    toggle_month_carpool_payment_status(member.id, year, month)
+    return redirect(url_for("dashboard", year=year, month=month))
 
 
 @app.route("/dashboard/status/save", methods=["POST"])
