@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>成員管理</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<table>
+  <tr><th>姓名</th><th>角色</th><th>操作</th></tr>
+  {% for m in members %}
+  <tr>
+    <td>{{ m.name }}</td>
+    <td>{{ "車主" if m.is_owner else "一般成員" }}</td>
+    <td>
+      {% if not m.is_owner %}
+      <form class="inline" method="post" action="{{ url_for('members_delete', member_id=m.id) }}">
+        <button type="submit">刪除</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<div class="card">
+  <form method="post">
+    <label>新增成員姓名：<input type="text" name="name" required></label>
+    <button type="submit">新增</button>
+  </form>
+</div>
+{% endblock %}

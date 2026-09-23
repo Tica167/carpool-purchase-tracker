@@ -1,0 +1,34 @@
+@startuml
+!theme plain
+title 共乘與代買明細管理系統 - 技術架構圖
+
+actor "使用者(手機/電腦瀏覽器)" as User
+
+package "Flask 應用程式" {
+  component [app.py\n(路由層)] as AppPy
+  component [services.py\n(業務邏輯)] as Services
+  component [models.py\n(SQLAlchemy 模型)] as Models
+  component [database.py\n(DB 連線管理)] as DatabasePy
+  component [Jinja2 HTML Templates] as Templates
+}
+
+database "SQLite\ncarpool_purchase.db" as SQLite
+
+User --> AppPy : HTTP 請求 (GET/POST)
+AppPy --> Templates : 渲染頁面
+Templates --> User : HTML 回應
+
+AppPy --> Services : 呼叫業務邏輯
+Services --> Models : 操作 ORM 物件
+Models --> DatabasePy : 透過 Session 存取
+DatabasePy --> SQLite : 讀寫資料
+
+note right of Models
+  Member
+  CarpoolRecord
+  PurchaseRecord
+  PurchaseItem
+  PurchaseShare
+end note
+
+@enduml

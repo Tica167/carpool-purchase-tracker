@@ -1,0 +1,45 @@
+@startuml
+!theme plain
+title 共乘與代買明細管理系統 - 概念架構圖
+
+actor "一般成員" as Member
+actor "車主" as Owner
+
+package "共乘與代買明細管理系統" {
+  component [身份選擇] as Login
+  component [共乘紀錄模組] as CarpoolModule
+  component [代買紀錄模組] as PurchaseModule
+  component [付款狀態管理] as PaymentStatus
+  component [月結算提示模組] as ReminderModule
+  component [成員名單管理] as MemberMgmt
+
+  database "共乘與代買資料儲存" as Storage
+}
+
+Member --> Login
+Owner --> Login
+
+Login --> CarpoolModule
+Login --> PurchaseModule
+
+Member --> CarpoolModule : 登記自己的共乘紀錄
+Owner --> CarpoolModule : 查看所有人共乘紀錄
+
+Member --> PurchaseModule : 發起代買/查看代買清單
+Owner --> PurchaseModule : 發起代買/查看代買清單
+
+Member --> PaymentStatus : 標記自己已付款
+Owner --> PaymentStatus : 標記自己已付款
+
+Owner --> MemberMgmt : 新增/刪除成員
+
+CarpoolModule --> Storage
+PurchaseModule --> Storage
+PaymentStatus --> Storage
+MemberMgmt --> Storage
+
+ReminderModule --> Storage : 檢查本月是否有未付款紀錄
+ReminderModule --> Member : 顯示「本月尚未結算」提示
+ReminderModule --> Owner : 顯示「本月尚未結算」提示
+
+@enduml

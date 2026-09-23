@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>共乘與代買明細管理系統</h1>
+<p style="color: var(--text-dim);">請選擇你自己的身份登入：</p>
+<div class="card">
+  {% for m in members %}
+  <form class="inline" method="post" action="{{ url_for('login', member_id=m.id) }}">
+    <button type="submit">{{ m.name }}</button>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

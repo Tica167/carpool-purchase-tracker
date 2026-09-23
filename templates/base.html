@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>共乘與代買明細管理系統</title>
+  <style>
+    :root {
+      --bg: #17181a;
+      --card-bg: #1f2023;
+      --card-bg-alt: #26272b;
+      --border: #333438;
+      --text: #eceded;
+      --text-dim: #9a9b9f;
+      --accent-teal: #4fd1b5;
+      --accent-blue: #5b9bf5;
+      --accent-orange: #f0a35e;
+      --accent-red: #e0685f;
+      --accent-pink: #f28fb0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    a { color: var(--accent-teal); text-decoration: none; }
+
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    nav a {
+      padding: 8px 14px;
+      background: var(--card-bg-alt);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 14px;
+      border: 1px solid var(--border);
+    }
+
+    .banner {
+      background: rgba(240, 163, 94, 0.15);
+      border: 1px solid var(--accent-orange);
+      color: var(--accent-orange);
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .error { color: var(--accent-red); margin-bottom: 8px; font-size: 14px; }
+
+    h1 { font-size: 20px; font-weight: 600; margin: 8px 0 16px; }
+    h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--text-dim); }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .stat-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .stat-value { font-size: 20px; font-weight: 700; }
+    .stat-total { color: var(--accent-orange); }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid var(--border); padding: 6px; text-align: left; font-size: 13px; }
+    th { background: var(--card-bg-alt); color: var(--text-dim); }
+
+    table.calendar { table-layout: fixed; }
+    table.calendar th { text-align: center; }
+    td.calendar-cell { vertical-align: top; height: 56px; padding: 4px; position: relative; }
+    td.calendar-cell.muted { background: var(--card-bg-alt); color: var(--text-dim); }
+    td.calendar-cell a { display: block; color: var(--text); }
+    td.calendar-cell.selected { outline: 2px solid var(--accent-teal); }
+    td.calendar-cell.holiday { background: rgba(242, 143, 176, 0.16); }
+    td.calendar-cell.holiday .calendar-day-num,
+    td.calendar-cell.holiday .calendar-holiday-name { color: var(--accent-pink); }
+    .calendar-day-num { font-weight: 600; margin-bottom: 4px; }
+    .calendar-holiday-name { font-size: 10px; line-height: 1.2; margin-bottom: 2px; }
+    .calendar-dots { display: flex; gap: 3px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.morning { background: var(--accent-teal); }
+    .dot.evening { background: var(--accent-blue); }
+    .dot.note { background: var(--accent-orange); }
+    .dot.holiday { background: var(--accent-pink); }
+
+    .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-dim); margin-top: 8px; flex-wrap: wrap; }
+    .legend span { display: inline-flex; align-items: center; gap: 4px; }
+
+    form.inline { display: inline; }
+    input, select, textarea, button {
+      font-size: 14px;
+      padding: 8px;
+      margin: 3px 0;
+      background: var(--card-bg-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent-teal);
+      color: #10201c;
+      font-weight: 600;
+      border: none;
+    }
+    button.secondary { background: var(--card-bg-alt); color: var(--text); border: 1px solid var(--border); }
+    button.active { background: var(--accent-blue); color: #0f1a2e; }
+
+    .toggle-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .toggle-row .toggle-btn { flex: 1; text-align: center; }
+
+    textarea { width: 100%; resize: vertical; }
+  </style>
+</head>
+<body>
+  {% if current_member %}
+  <nav>
+    <a href="{{ url_for('dashboard') }}">共乘與代買</a>
+    {% if current_member.is_owner %}
+    <a href="{{ url_for('members_page') }}">成員管理</a>
+    {% endif %}
+    <a href="{{ url_for('login_page') }}">切換身份（目前：{{ current_member.name }}）</a>
+  </nav>
+  {% if monthly_unpaid > 0 %}
+  <div class="banner">本月尚未結算：目前還有 {{ monthly_unpaid }} 筆未付款紀錄，記得對帳付款喔！</div>
+  {% endif %}
+  {% endif %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+  <span>本月結算 — {{ view_member.name }}</span>
+  <span>每趟車資 ${{ carpool_amount }}</span>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">共乘趟數</div>
+    <div class="stat-value">{{ summary.ride_count }} 趟</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">車資小計</div>
+    <div class="stat-value">${{ summary.carpool_subtotal }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">代買小計</div>
+    <div class="stat-value">${{ summary.purchase_subtotal }}</div>
+  </div>
+</div>
+<div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+  <strong>本月應付總計</strong>
+  <span class="stat-value stat-total">${{ summary.total }}</span>
+</div>
+
+{% if current_member.is_owner %}
+<div class="card">
+  <form method="get">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    查看成員：
+    <select name="view_member_id" onchange="this.form.submit()">
+      {% for m in members %}
+      <option value="{{ m.id }}" {% if m.id == view_member.id %}selected{% endif %}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>共乘日曆 <span style="font-size:12px;">(ISO 8601 週別)</span></h2>
+  <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <a href="{{ url_for('dashboard', year=prev_year, month=prev_month, view_member_id=view_member.id) }}">＜ 上個月</a>
+    <strong>{{ year }} 年 {{ month }} 月</strong>
+    <a href="{{ url_for('dashboard', year=next_year, month=next_month, view_member_id=view_member.id) }}">下個月 ＞</a>
+  </div>
+  {% if not holiday_data_available %}
+  <p class="error">尚未有 {{ year }} 年度政府行政機關辦公日曆表資料更新，此月曆暫不標示國定假日。</p>
+  {% endif %}
+  <table class="calendar">
+    <tr>
+      <th>週</th><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th>
+    </tr>
+    {% for week in weeks %}
+    <tr>
+      <th>{{ week[0].isocalendar()[1] }}</th>
+      {% for day in week %}
+      {% set day_records = records_by_day.get(day, {}) %}
+      {% set holiday_name = holidays.get(day) %}
+      <td class="calendar-cell{% if day.month != month %} muted{% endif %}{% if day == selected_date %} selected{% endif %}{% if holiday_name %} holiday{% endif %}">
+        {% if day.month == month %}
+        <a href="{{ url_for('dashboard', year=year, month=month, view_member_id=view_member.id, date=day.isoformat()) }}" {% if holiday_name %}title="{{ holiday_name }}"{% endif %}>
+          <div class="calendar-day-num">{{ day.day }}</div>
+          {% if holiday_name %}<div class="calendar-holiday-name">{{ holiday_name }}</div>{% endif %}
+          <div class="calendar-dots">
+            {% if 'morning' in day_records %}<span class="dot morning" title="上班共乘"></span>{% endif %}
+            {% if 'evening' in day_records %}<span class="dot evening" title="下班共乘"></span>{% endif %}
+            {% if day_records.values() | selectattr('note') | list %}<span class="dot note" title="有備註"></span>{% endif %}
+          </div>
+        </a>
+        {% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="legend">
+    <span><i class="dot morning"></i> 上班共乘</span>
+    <span><i class="dot evening"></i> 下班共乘</span>
+    <span><i class="dot note"></i> 有備註</span>
+    <span><i class="dot holiday"></i> 國定假日</span>
+  </div>
+</div>
+
+{% if selected_date %}
+<div class="card">
+  <h2>{{ selected_date.isoformat() }}{% if not can_edit %}（唯讀 — 僅本人可編輯自己的紀錄）{% endif %}</h2>
+  {% if not holiday_data_available %}
+  <p class="error">尚未有 {{ selected_date.year }} 年度政府行政機關辦公日曆表資料更新，無法確認這天是否為國定假日。</p>
+  {% endif %}
+
+  {% if can_edit %}
+  <form method="post" action="{{ url_for('carpool_save') }}">
+    <input type="hidden" name="record_date" value="{{ selected_date.isoformat() }}">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    <label><input type="checkbox" name="morning" {% if 'morning' in selected_day_records %}checked{% endif %}> 上班 是否共乘</label><br>
+    <label><input type="checkbox" name="evening" {% if 'evening' in selected_day_records %}checked{% endif %}> 下班 是否共乘</label><br>
+    <textarea name="note" rows="2" placeholder="簡單備註（例如：改搭公車、同事請假…）">{{ (selected_day_records.values() | list | first).note if selected_day_records else '' }}</textarea><br>
+    <button type="submit">儲存</button>
+  </form>
+
+  {% for period, record in selected_day_records.items() %}
+  <form class="inline" method="post" action="{{ url_for('carpool_pay', record_id=record.id) }}">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    <input type="hidden" name="record_date" value="{{ selected_date.isoformat() }}">
+    <button type="submit" class="secondary">{{ period_labels[period] }}：{{ "已付款" if record.is_paid else "未付款（點擊標記已付款）" }}</button>
+  </form>
+  {% endfor %}
+  {% else %}
+  {% for period, record in selected_day_records.items() %}
+  <p>{{ period_labels[period] }}：{{ "已付款" if record.is_paid else "未付款" }}{% if record.note %} — 備註：{{ record.note }}{% endif %}</p>
+  {% else %}
+  <p>這天沒有共乘紀錄。</p>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>代買記錄</h2>
+
+  <form method="post" action="{{ url_for('purchase_add') }}">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+    <input type="date" name="record_date" value="{{ selected_date.isoformat() if selected_date else '' }}" required>
+    <input type="text" name="item_name" placeholder="項目（例如：蛋餅）" required>
+    <input type="number" name="item_amount" placeholder="金額" required><br>
+    <input type="text" name="note" placeholder="備註（選填）" style="width:100%;"><br>
+    <div>
+      分攤對象（不選＝只是自己記一筆，不用別人付款）：
+      {% for m in members if m.id != current_member.id %}
+      <label><input type="checkbox" name="share_member_id" value="{{ m.id }}"> {{ m.name }}</label>
+      {% endfor %}
+    </div>
+    <button type="submit">新增一筆</button>
+  </form>
+</div>
+
+<div class="card">
+  {% for r in purchase_records %}
+  <div class="card" style="background: var(--card-bg-alt);">
+    <p><strong>{{ r.record_date }}</strong> — 代買人：{{ r.initiator.name }}{% if r.note %} — 備註：{{ r.note }}{% endif %}</p>
+    <ul>
+      {% for item in r.items %}
+      <li>{{ item.item_name }}：{{ item.amount }} 元</li>
+      {% endfor %}
+    </ul>
+    {% if r.shares %}
+    <table>
+      <tr><th>分攤人</th><th>應付金額</th><th>付款狀態</th><th>操作</th></tr>
+      {% for s in r.shares %}
+      <tr>
+        <td>{{ s.member.name }}</td>
+        <td>{{ s.share_amount }}</td>
+        <td>{{ "已付款" if s.is_paid else "未付款" }}</td>
+        <td>
+          {% if s.member_id == current_member.id %}
+          <form class="inline" method="post" action="{{ url_for('purchase_share_pay', share_id=s.id) }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            <button type="submit" class="secondary">{{ "標記未付款" if s.is_paid else "標記已付款" }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p style="color: var(--text-dim); font-size: 13px;">僅自己記錄，無人需要分攤。</p>
+    {% endif %}
+  </div>
+  {% else %}
+  <p style="color: var(--text-dim);">本月尚無代買記錄</p>
+  {% endfor %}
+  <div style="display:flex; justify-content:space-between; margin-top:8px;">
+    <strong>本月代買小計（我發起的）</strong>
+    <span>${{ purchase_subtotal_all }}</span>
+  </div>
+</div>
+
+{% endblock %}
