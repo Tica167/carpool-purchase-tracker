@@ -14,11 +14,14 @@ from services import (
     CARPOOL_AMOUNT,
     add_member,
     create_purchase_record,
+    delete_purchase_record,
     get_member_monthly_summary,
     get_month_all_day_status,
     get_month_carpool_records,
     get_month_day_status,
+    get_month_payable_by_initiator,
     get_month_purchase_records,
+    get_month_purchase_subtotal_by_initiator,
     get_monthly_unpaid_count,
     remove_member,
     set_carpool_slot,
@@ -163,9 +166,19 @@ def dashboard():
                 day_status_display[d] = [(view_member.name, entries[view_member.id])]
 
     purchase_records = get_month_purchase_records(year, month)
-    purchase_subtotal_all = sum(
-        item.amount for r in purchase_records for item in r.items if r.initiator_id == member.id
-    )
+
+    # 各發起人本月代買小計（例如 Hugo_代買小計、Tina_代買小計）
+    subtotal_by_initiator_id = get_month_purchase_subtotal_by_initiator(year, month)
+    subtotal_by_initiator = [
+        (member_name_by_id.get(mid, "?"), amount) for mid, amount in subtotal_by_initiator_id.items()
+    ]
+
+    # 目前登入者本月要付給各發起人的金額，分已付/未付（永遠是登入者自己的欠款，不受查看對象切換影響）
+    payable_by_initiator_id = get_month_payable_by_initiator(member.id, year, month)
+    payable_by_initiator = [
+        (member_name_by_id.get(mid, "?"), amounts["paid"], amounts["unpaid"])
+        for mid, amounts in payable_by_initiator_id.items()
+    ]
 
     selected_date = date.fromisoformat(selected_date_str) if selected_date_str else None
     selected_day_records = records_by_day.get(selected_date, {}) if selected_date else {}
@@ -197,7 +210,8 @@ def dashboard():
         carpool_amount=CARPOOL_AMOUNT,
         summary=summary,
         purchase_records=purchase_records,
-        purchase_subtotal_all=purchase_subtotal_all,
+        subtotal_by_initiator=subtotal_by_initiator,
+        payable_by_initiator=payable_by_initiator,
         selected_date=selected_date,
         selected_day_records=selected_day_records,
         selected_day_status=selected_day_status,
@@ -272,6 +286,18 @@ def purchase_add():
             member.id, record_date, [(item_name, int(item_amount))], share_member_ids, note
         )
 
+    return redirect(url_for("dashboard", year=year, month=month))
+
+
+@app.route("/dashboard/purchase/<int:record_id>/delete", methods=["POST"])
+def purchase_delete(record_id):
+    member = current_member()
+    year = request.form.get("year", type=int)
+    month = request.form.get("month", type=int)
+    try:
+        delete_purchase_record(record_id, member.id)
+    except (ValueError, PermissionError):
+        abort(403)
     return redirect(url_for("dashboard", year=year, month=month))
 
 

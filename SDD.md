@@ -3,10 +3,10 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 1.6 |
+| 文件版本 | 1.7 |
 | 建立日期 | 2026年9月23日 |
 | 最後更新 | 2026年9月23日 |
-| 對應 PRD 版本 | 1.3 |
+| 對應 PRD 版本 | 1.4 |
 | 文件狀態 | 設計中 |
 
 ---
@@ -25,7 +25,7 @@
 - 車主可維護 5 人成員名單（新增/刪除）。
 - 共乘與代買紀錄都可加一段簡短備註（例如：改搭公車、同事請假）。
 - 代買紀錄的分攤對象可以不選任何人，代表這筆只是自己的紀錄、不需要別人付款。
-- 共乘與代買整合在同一個儀表板頁面操作，頁面上方顯示登入者本人當月的統計（共乘趟數、車資小計、代買小計、應付總計）。
+- 共乘與代買整合在同一個儀表板頁面操作，頁面上方顯示登入者本人當月的統計（共乘趟數、車資小計、代買小計、**車資本月應付總計**——只計共乘車資，不含代買）。
 - 共乘日曆依中華民國政府行政機關辦公日曆表標示國定假日/補假（粉色），若該年度尚無資料則顯示提示文字，不影響其他功能運作。
 
 ### 1.3 技術選型
@@ -77,6 +77,9 @@
   - `get_month_day_status(member_id, year, month)` — 回傳該成員當月的請假/居家狀態字典，供日曆標色（此函數不限本人查詢，因為該狀態全員互相可見）
   - `get_month_all_day_status(year, month)` — 回傳當月「所有成員」的請假/居家狀態（`{日期: {member_id: status}}`），供 `app.py` 組出彙總顯示（車主看全部、一般成員自動看到車主）
   - `create_purchase_record(initiator_id, date, items, share_member_ids, note)` — `share_member_ids` 可為空清單，代表僅自己記錄、不建立任何 `PurchaseShare`
+  - `delete_purchase_record(record_id, member_id)` — 刪除一筆代買紀錄（連同品項與分攤），僅發起人（`initiator_id == member_id`）可刪除，否則丟 `PermissionError`
+  - `get_month_purchase_subtotal_by_initiator(year, month)` — 本月各發起人的代買小計（`{initiator_id: 金額}`）
+  - `get_month_payable_by_initiator(member_id, year, month)` — 該成員本月要付給各發起人的金額，依已付/未付分開加總（`{initiator_id: {"paid": x, "unpaid": y}}`）
   - `toggle_payment_status(record_type, record_id, member_id)`
   - `get_month_carpool_records(member_id, year, month)` / `get_month_purchase_records(year, month)`
   - `get_member_monthly_summary(member_id, year, month)` — 回傳該成員當月的共乘趟數、車資小計、代買小計（作為分攤人應付的金額）與應付總計，供儀表板統計卡片使用
@@ -195,7 +198,7 @@ purchase_records 1 ──── * purchase_shares
 
 ### 5.3 核心互動流程
 1. 首頁點選姓名 → 一般成員直接登入；車主需輸入密碼，錯誤則停在登入頁顯示「密碼錯誤」。登入成功導向 `/dashboard`，若當月有未付款紀錄，頁面上方顯示提示區塊「本月尚未結算」。
-2. 儀表板頂部：若 `can_view_rides`（查看自己，或車主查看任何人）為真，顯示當月統計卡片（共乘趟數、車資小計、代買小計、應付總計）；否則顯示提示文字，說明共乘明細屬隱私僅本人與車主可查看。
+2. 儀表板頂部：若 `can_view_rides`（查看自己，或車主查看任何人）為真，顯示當月統計卡片（共乘趟數、車資小計、代買小計）與「**車資本月應付總計**」（僅 `carpool_subtotal`，不含代買）；否則顯示提示文字，說明共乘明細屬隱私僅本人與車主可查看。
 3. 「查看成員」下拉選單開放給所有人（不限車主），可切換查看任何成員的日曆。
 4. 共乘日曆以 ISO 8601 週別呈現整月：
    - 若 `can_view_rides`：每天格子以圓點標示是否有上班/下班共乘、是否有備註。
@@ -205,7 +208,10 @@ purchase_records 1 ──── * purchase_shares
      - 若查看對象是本人：顯示請假/居家狀態下拉選單（正常／請假／居家）+ 儲存按鈕；顯示可勾選的上班/下班切換框、備註輸入框、「儲存共乘」按鈕（兩者互不影響，可同時設定）；已登記的時段另外顯示付款狀態按鈕（僅本人可點擊標記已付款）。
      - 若查看對象是他人：面板標示「唯讀」。一律顯示該成員的請假/居家狀態文字；若 `can_view_rides`（車主查看）則額外顯示共乘明細與付款狀態文字，否則顯示「共乘打卡明細僅本人與車主可見」。
    - 若該年度尚無假日資料檔（`holidays.has_holiday_data(year)` 為 False）：在日曆卡片與點選日期的面板都顯示提示文字「尚未有 {{年度}} 年度政府行政機關辦公日曆表資料更新」，其餘功能不受影響。
-5. 代買記錄區塊提供快速新增表單（日期、品項、金額、備註、分攤對象——分攤對象可不選，代表僅自己記錄），送出後即時出現在下方清單；清單所有人皆可見，分攤人若是目前登入者可點擊標記已付款。
+5. 代買記錄區塊提供快速新增表單（日期、品項、金額、備註、分攤對象——分攤對象可不選，代表僅自己記錄），送出後即時出現在下方清單；清單所有人皆可見，分攤人若是目前登入者可點擊標記已付款；每筆紀錄若發起人是目前登入者，額外顯示「刪除」按鈕（刪除會連同品項與所有分攤一起移除）。
+6. 代買清單下方另外顯示兩張彙總表格（皆全站可見，不受 `can_view_rides` 限制）：
+   - **各發起人本月代買小計**：列出本月每一位有發起代買的成員，各自的品項金額加總（例如 Hugo：$100）。
+   - **我本月應付給各發起人**：以目前登入者為主體，列出本月要付給每位發起人的金額，分「已付款」「未付款」兩欄（依登入者自己在各筆分攤上的付款狀態統計），不受查看對象下拉切換影響。
 
 ---
 
@@ -215,11 +221,12 @@ purchase_records 1 ──── * purchase_shares
 |------|------|------|--------------------|
 | `/` | GET | 顯示身份選擇頁 | - |
 | `/login/<member_id>` | POST | 設定 Session 身份；若為車主須比對 `password` 表單欄位與 `OWNER_PASSWORD` | - |
-| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_holidays()`、`has_holiday_data()` |
+| `/dashboard` | GET | 依 `year`/`month`/`view_member_id`/`date` 查詢參數顯示儀表板（統計卡片、日曆、代買清單、各發起人小計與應付明細） | `get_member_monthly_summary()`、`get_month_carpool_records()`、`get_month_day_status()`、`get_month_all_day_status()`、`get_month_purchase_records()`、`get_month_purchase_subtotal_by_initiator()`、`get_month_payable_by_initiator()`、`get_holidays()`、`has_holiday_data()` |
 | `/dashboard/carpool/save` | POST | 儲存選定日期的上班/下班開關與備註 | `set_carpool_slot()` |
 | `/dashboard/status/save` | POST | 儲存選定日期的請假/居家狀態（限本人） | `set_day_status()` |
 | `/dashboard/carpool/<id>/pay` | POST | 標記共乘紀錄已付款（限本人） | `toggle_payment_status()` |
 | `/dashboard/purchase/add` | POST | 新增一筆代買紀錄（單一品項）與分攤（分攤對象可為空） | `create_purchase_record()` |
+| `/dashboard/purchase/<id>/delete` | POST | 刪除一筆代買紀錄（限發起人） | `delete_purchase_record()` |
 | `/dashboard/purchase/share/<id>/pay` | POST | 標記分攤款已付款（限本人） | `toggle_payment_status()` |
 | `/members` | GET/POST | 車主查看/新增成員（僅車主） | `add_member()` |
 | `/members/<id>/delete` | POST | 車主刪除成員（僅車主） | `remove_member()` |
@@ -237,6 +244,7 @@ purchase_records 1 ──── * purchase_shares
 | 查看的年度沒有假日資料檔 | `has_holiday_data()` 回傳 False，日曆仍正常顯示，只是不標示假日 | 顯示「尚未有資料更新」提示，不阻斷其他功能 |
 | 車主登入密碼錯誤 | 後端比對失敗，不建立 Session | 停留在登入頁，顯示「密碼錯誤」 |
 | 非本人且非車主查看他人的共乘明細 | 後端直接不撈取該成員的共乘紀錄與統計（`can_view_rides=False` 時回傳空資料），非僅前端隱藏 | 顯示「共乘打卡明細僅本人與車主可見」，但仍顯示該成員的請假/居家狀態 |
+| 非發起人嘗試刪除代買紀錄 | 後端比對 `initiator_id` 與 Session 身份，拒絕操作 | 回傳 403；頁面上非發起人本來就不會看到「刪除」按鈕 |
 
 ---
 

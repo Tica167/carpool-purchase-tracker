@@ -22,8 +22,8 @@
   </div>
 </div>
 <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-  <strong>本月應付總計</strong>
-  <span class="stat-value stat-total">${{ summary.total }}</span>
+  <strong>車資本月應付總計</strong>
+  <span class="stat-value stat-total">${{ summary.carpool_subtotal }}</span>
 </div>
 {% else %}
 <div class="card">
@@ -176,7 +176,16 @@
 <div class="card">
   {% for r in purchase_records %}
   <div class="card" style="background: var(--card-bg-alt);">
-    <p><strong>{{ r.record_date }}</strong> — 代買人：{{ r.initiator.name }}{% if r.note %} — 備註：{{ r.note }}{% endif %}</p>
+    <p style="display:flex; justify-content:space-between; align-items:center; margin:0 0 6px;">
+      <span><strong>{{ r.record_date }}</strong> — 代買人：{{ r.initiator.name }}{% if r.note %} — 備註：{{ r.note }}{% endif %}</span>
+      {% if r.initiator_id == current_member.id %}
+      <form class="inline" method="post" action="{{ url_for('purchase_delete', record_id=r.id) }}">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <button type="submit" class="secondary">刪除</button>
+      </form>
+      {% endif %}
+    </p>
     <ul>
       {% for item in r.items %}
       <li>{{ item.item_name }}：{{ item.amount }} 元</li>
@@ -209,10 +218,34 @@
   {% else %}
   <p style="color: var(--text-dim);">本月尚無代買記錄</p>
   {% endfor %}
-  <div style="display:flex; justify-content:space-between; margin-top:8px;">
-    <strong>本月代買小計（我發起的）</strong>
-    <span>${{ purchase_subtotal_all }}</span>
-  </div>
+</div>
+
+<div class="card">
+  <h2>各發起人本月代買小計</h2>
+  {% if subtotal_by_initiator %}
+  <table>
+    <tr><th>發起人</th><th>小計</th></tr>
+    {% for name, amount in subtotal_by_initiator %}
+    <tr><td>{{ name }}</td><td>${{ amount }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color: var(--text-dim);">本月尚無代買記錄</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>我本月應付給各發起人</h2>
+  {% if payable_by_initiator %}
+  <table>
+    <tr><th>發起人</th><th>已付款</th><th>未付款</th></tr>
+    {% for name, paid, unpaid in payable_by_initiator %}
+    <tr><td>{{ name }}</td><td>${{ paid }}</td><td>${{ unpaid }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p style="color: var(--text-dim);">本月沒有需要分攤付款給別人的代買紀錄</p>
+  {% endif %}
 </div>
 
 {% endblock %}

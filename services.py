@@ -156,6 +156,56 @@ def create_purchase_record(
         return purchase
 
 
+def delete_purchase_record(record_id: int, member_id: int) -> None:
+    """刪除一筆代買紀錄（含品項與分攤），僅發起人可刪除。"""
+    with get_session() as session:
+        record = session.get(PurchaseRecord, record_id)
+        if record is None:
+            raise ValueError("紀錄不存在")
+        if record.initiator_id != member_id:
+            raise PermissionError("僅發起人可刪除此紀錄")
+        session.delete(record)
+        session.commit()
+
+
+def get_month_purchase_subtotal_by_initiator(year: int, month: int) -> dict[int, int]:
+    """本月各發起人的代買小計（品項金額加總），用於顯示每位發起人各自的小計。"""
+    with get_session() as session:
+        rows = (
+            session.query(PurchaseRecord.initiator_id, PurchaseItem.amount)
+            .join(PurchaseItem, PurchaseItem.purchase_record_id == PurchaseRecord.id)
+            .filter(
+                extract("year", PurchaseRecord.record_date) == year,
+                extract("month", PurchaseRecord.record_date) == month,
+            )
+            .all()
+        )
+        totals: dict[int, int] = {}
+        for initiator_id, amount in rows:
+            totals[initiator_id] = totals.get(initiator_id, 0) + amount
+        return totals
+
+
+def get_month_payable_by_initiator(member_id: int, year: int, month: int) -> dict[int, dict[str, int]]:
+    """該成員本月要付給各發起人的金額，依已付/未付分開加總：{initiator_id: {"paid": x, "unpaid": y}}。"""
+    with get_session() as session:
+        rows = (
+            session.query(PurchaseRecord.initiator_id, PurchaseShare.share_amount, PurchaseShare.is_paid)
+            .join(PurchaseShare, PurchaseShare.purchase_record_id == PurchaseRecord.id)
+            .filter(
+                PurchaseShare.member_id == member_id,
+                extract("year", PurchaseRecord.record_date) == year,
+                extract("month", PurchaseRecord.record_date) == month,
+            )
+            .all()
+        )
+        result: dict[int, dict[str, int]] = {}
+        for initiator_id, amount, is_paid in rows:
+            bucket = result.setdefault(initiator_id, {"paid": 0, "unpaid": 0})
+            bucket["paid" if is_paid else "unpaid"] += amount
+        return result
+
+
 def get_month_carpool_records(member_id: int, year: int, month: int) -> list[CarpoolRecord]:
     with get_session() as session:
         records = (
