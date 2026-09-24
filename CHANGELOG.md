@@ -2,6 +2,14 @@
 
 > 由 prd-sdd-studio skill 自動維護。最新紀錄在最上方。
 
+## 2026-09-24 07:10 — 同步 PRD/SDD/HANDOFF：代買品項分攤改版
+
+- **做了什麼**：PRD.md 更新 FR-004（代買改為「每個品項各自」指定分攤對象，新增合併卡片與彙總小計的驗收標準）、FR-005（代買付款狀態改為整張卡片一鍵標記）、8.1 資料實體說明改成品項層級分攤，文件版本 1.5 → 1.6；SDD.md §3 更新 `models.py`/`services.py` 說明（`PurchaseItemShare` 取代 `PurchaseShare`、新增 `add_purchase_item()`/`toggle_purchase_record_share_payment()`），§4.2 新增 `purchase_item_shares` 資料表取代 `purchase_shares`，§4.3 關聯圖更新，§5.3 更新代買卡片互動流程，§6 路由表更新（`/purchase/add` 改呼叫 `add_purchase_item()`、`/purchase/share/<id>/pay` 改為 `/purchase/<id>/pay-mine`），§9 實作路徑同步模型/函式名稱，文件版本 2.0 → 2.1，對應 PRD 版本更新為 1.6；HANDOFF.md 全面更新為目前狀態（27 個 commit、車主密碼、車資費率調整、代買品項改版、版面微調皆補上，並記錄舊版 `purchase_shares` 表已是孤兒表但未刪除）
+- **為什麼**：讓文件反映代買分攤已從「整筆紀錄」改成「每個品項各自」指定分攤對象的最新設計，並讓交接文件回到可信賴、反映真實現況的狀態
+- **影響檔案**：`PRD.md`, `SDD.md`, `HANDOFF.md`
+- **Git**：⏸ 未版控
+- **文件同步**：✅ 本筆即為文件同步
+
 ## 2026-09-24 06:40 — 版面微調：車主頁面日曆置頂、統計卡片縮小、日曆格子放大
 
 - **做了什麼**：

@@ -3,10 +3,10 @@
 ## 文件資訊
 | 項目 | 內容 |
 |------|------|
-| 文件版本 | 2.0 |
+| 文件版本 | 2.1 |
 | 建立日期 | 2026年9月23日 |
-| 最後更新 | 2026年9月23日 |
-| 對應 PRD 版本 | 1.5 |
+| 最後更新 | 2026年9月24日 |
+| 對應 PRD 版本 | 1.6 |
 | 文件狀態 | 設計中 |
 
 ---
@@ -66,8 +66,8 @@
 - **核心功能**：`init_db()`、`get_session()`、`get_storage_warning()`（僅雲端 PostgreSQL 適用，見 §8.2）。
 
 ### `models.py`
-- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、車資費率、代買紀錄、代買品項、代買分攤、請假/居家狀態）。
-- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`CarpoolRate`（車資費率，`effective_date` 唯一）、`MemberDayStatus`（成員請假/居家狀態，`member_id`+`record_date` 唯一）、`PurchaseRecord`（含 `note` 備註欄位）、`PurchaseItem`、`PurchaseShare` 七個模型類別。
+- **職責**：定義所有 SQLAlchemy ORM 模型（成員、共乘紀錄、車資費率、代買紀錄、代買品項、代買品項分攤、請假/居家狀態）。
+- **核心功能**：`Member`、`CarpoolRecord`（含 `note` 備註欄位）、`CarpoolRate`（車資費率，`effective_date` 唯一）、`MemberDayStatus`（成員請假/居家狀態，`member_id`+`record_date` 唯一）、`PurchaseRecord`（含 `note` 備註欄位，`buyer_summary` 屬性彙總卡片內各分攤人的小計與付款狀態）、`PurchaseItem`、`PurchaseItemShare`（**取代舊版的 `PurchaseShare`**——分攤對象改為綁在「品項」而非整筆紀錄上，見 §4.2）七個模型類別。
 
 ### `services.py`
 - **職責**：封裝所有業務邏輯（開關單一時段的共乘紀錄、設定車資費率、設定請假/居家狀態、新增代買與分攤、計算月結金額與統計、切換付款狀態、判斷本月是否已結算）。
@@ -79,11 +79,12 @@
   - `set_day_status(member_id, record_date, status)` — 設定/清除成員某天的請假(`leave`)/居家(`wfh`)狀態，`status=None` 代表清除；跟 `set_carpool_slot` 互不影響，可同時設定
   - `get_month_day_status(member_id, year, month)` — 回傳該成員當月的請假/居家狀態字典，供日曆標色（此函數不限本人查詢，因為該狀態全員互相可見）
   - `get_month_all_day_status(year, month)` — 回傳當月「所有成員」的請假/居家狀態（`{日期: {member_id: status}}`），供 `app.py` 組出彙總顯示（車主看全部、一般成員自動看到車主）
-  - `create_purchase_record(initiator_id, date, items, share_member_ids, note)` — `share_member_ids` 可為空清單，代表僅自己記錄、不建立任何 `PurchaseShare`
-  - `delete_purchase_record(record_id, member_id)` — 刪除一筆代買紀錄（連同品項與分攤），僅發起人（`initiator_id == member_id`）可刪除，否則丟 `PermissionError`
-  - `get_month_purchase_subtotal_by_initiator(year, month)` — 本月各發起人的代買小計（`{initiator_id: 金額}`）
-  - `get_month_payable_by_initiator(member_id, year, month)` — 該成員本月要付給各發起人的金額，依已付/未付分開加總（`{initiator_id: {"paid": x, "unpaid": y}}`）
-  - `toggle_payment_status(record_type, record_id, member_id)`
+  - `add_purchase_item(initiator_id, record_date, item_name, amount, buyer_member_ids, note=None)` — 新增**一個代買品項**：若當天該發起人已存在一張 `PurchaseRecord`，直接掛在該卡片下（`note` 僅在建立新卡片時套用）；否則新建一張卡片。建立一筆 `PurchaseItem`，若 `buyer_member_ids` 非空，依人數平均分攤（四捨五入）寫入對應的 `PurchaseItemShare`；為空則代表此品項僅發起人自行記錄，不建立任何分攤
+  - `delete_purchase_record(record_id, member_id)` — 刪除整筆代買紀錄（連同所有品項與品項分攤，走 ORM `session.delete()` 讓 cascade 生效），僅發起人（`initiator_id == member_id`）可刪除，否則丟 `PermissionError`
+  - `toggle_purchase_record_share_payment(record_id, member_id)` — 一鍵切換該成員在**這一整張卡片**（所有品項）的分攤付款狀態：目前有任一品項分攤未付款就整張設為已付款，已全部付清則整張改回未付款；該成員在這張卡片內完全沒有分攤則丟 `ValueError`
+  - `get_month_purchase_subtotal_by_initiator(year, month)` — 本月各發起人的代買小計（`{initiator_id: 金額}`，仍以 `PurchaseItem.amount` 加總，不受分攤對象改成品項層級影響）
+  - `get_month_payable_by_initiator(member_id, year, month)` — 該成員本月要付給各發起人的金額，依已付/未付分開加總（`{initiator_id: {"paid": x, "unpaid": y}}`，改為 join `PurchaseRecord → PurchaseItem → PurchaseItemShare` 計算）
+  - `toggle_payment_status(record_type, record_id, member_id)` — 僅支援 `"carpool"`（單一時段的共乘付款狀態切換，供日曆點選面板使用），代買改用上面的 `toggle_purchase_record_share_payment()`
   - `get_month_carpool_records(member_id, year, month)` / `get_month_purchase_records(year, month)`
   - `get_member_monthly_summary(member_id, year, month)` — 回傳該成員當月的共乘趟數、車資小計、代買小計（作為分攤人應付的金額）與應付總計，供儀表板頂部結算區使用；車主登入時 `app.py` 會對每位一般成員各呼叫一次，組成 4 行總覽
   - `get_month_carpool_payment_status(member_id, year, month)` — 該成員本月共乘紀錄是否已全部付清（任何一筆未付款即為 False），供頂部「付款狀態」卡片使用
@@ -167,27 +168,29 @@
 | item_name | TEXT | 品項名稱 | 例：飲料 |
 | amount | INTEGER | 品項金額 | |
 
-**Table: `purchase_shares`**
+**Table: `purchase_item_shares`**（**v2.1 取代舊版 `purchase_shares`**）
 | 欄位名稱 | 資料型態 | 說明 | 備註 |
 |----------|----------|------|------|
 | id | INTEGER | 唯一識別碼 | 主鍵，自動遞增 |
-| purchase_record_id | INTEGER | 所屬代買紀錄（外鍵） | 參照 `purchase_records.id` |
+| purchase_item_id | INTEGER | 所屬**品項**（外鍵） | 參照 `purchase_items.id`（舊版是參照 `purchase_records.id`） |
 | member_id | INTEGER | 分攤成員（外鍵） | 參照 `members.id` |
-| share_amount | INTEGER | 該成員應付金額 | 品項總金額 ÷ 分攤人數（四捨五入） |
+| share_amount | INTEGER | 該成員應付金額 | 該品項金額 ÷ 該品項分攤人數（四捨五入） |
 | is_paid | BOOLEAN | 是否已付款 | 預設 False，由該成員本人標記 |
 
-> **設計假設**：代買總金額由分攤人數平均分攤，發起人（先墊錢者）本身不列入 `purchase_shares`（因為他已經付出去了，不欠自己錢）。此假設未在 PRD 中明確定義平均分攤規則，若實際使用後發現需要「不均分」的情境，可在下一輪迭代調整 `share_amount` 的計算方式。
+> **設計假設**：品項金額由該品項指定的分攤人數平均分攤，發起人（先墊錢者）本身不列入分攤（因為他已經付出去了，不欠自己錢）。此假設未在 PRD 中明確定義平均分攤規則，若實際使用後發現需要「不均分」的情境，可在下一輪迭代調整 `share_amount` 的計算方式。
 >
-> **v1.1 更新**：`share_member_ids` 允許為空清單——此時不建立任何 `PurchaseShare`，代表這筆代買純粹是發起人自己的紀錄（例如個人消費），不需要任何人分攤付款。
+> **v1.1 更新**：分攤對象允許為空清單——此時該品項不建立任何分攤，代表這個品項純粹是發起人自己的紀錄（例如個人消費），不需要任何人分攤付款。
+>
+> **v2.1 更新（分攤對象改為品項層級）**：原本 `purchase_shares` 直接掛在 `purchase_records`，代表「整筆代買紀錄」只能有一組固定的分攤對象。改成 `purchase_item_shares` 掛在 `purchase_items` 之下後，同一張代買卡片裡的不同品項可以各自指定不同的分攤對象組合（例如蛋餅由 A、B 分攤，奶茶只有 A 要）。`PurchaseRecord.buyer_summary` 屬性負責把卡片內所有品項的分攤，依分攤人彙總成「小計」與「是否全部付清」，供畫面顯示卡片下方的購買人彙總表格。
 
 ### 4.3 資料關聯
 ```
 members 1 ──── * carpool_records
 members 1 ──── * member_day_status
 members 1 ──── * purchase_records (as initiator)
-members 1 ──── * purchase_shares (as sharer)
+members 1 ──── * purchase_item_shares (as sharer)
 purchase_records 1 ──── * purchase_items
-purchase_records 1 ──── * purchase_shares
+purchase_items 1 ──── * purchase_item_shares
 ```
 
 ### 4.4 假日資料（非資料庫，檔案儲存）
@@ -227,7 +230,10 @@ purchase_records 1 ──── * purchase_shares
      - 若查看對象是本人：顯示請假/居家狀態下拉選單（正常／請假／居家）+ 儲存按鈕；顯示可勾選的上班/下班切換框、備註輸入框、「儲存共乘」按鈕（兩者互不影響，可同時設定）；已登記的時段另外顯示付款狀態按鈕（僅本人可點擊標記已付款）。
      - 若查看對象是他人：面板標示「唯讀」。一律顯示該成員的請假/居家狀態文字；若 `can_view_rides`（車主查看）則額外顯示共乘明細與付款狀態文字，否則顯示「共乘打卡明細僅本人與車主可見」。
    - 若該年度尚無假日資料檔（`holidays.has_holiday_data(year)` 為 False）：在日曆卡片與點選日期的面板都顯示提示文字「尚未有 {{年度}} 年度政府行政機關辦公日曆表資料更新」，其餘功能不受影響。
-5. 代買記錄區塊提供快速新增表單（日期、品項、金額、備註、分攤對象——分攤對象可不選，代表僅自己記錄），送出後即時出現在下方清單；清單所有人皆可見，分攤人若是目前登入者可點擊標記已付款；每筆紀錄若發起人是目前登入者，額外顯示「刪除」按鈕（刪除會連同品項與所有分攤一起移除）。
+5. 代買記錄區塊提供快速新增表單（日期、**一個**品項名稱、金額、備註、這個品項的分攤對象——可不選，代表僅自己記錄），送出後呼叫 `add_purchase_item()`：同一天、同一位代買人已有卡片就合併進去，否則新建一張卡片，即時出現在下方清單。每張卡片：
+   - 上半部列出卡片內每個品項（名稱、金額、該品項的分攤對象）與品項小計加總
+   - 下半部是 `buyer_summary` 彙總出的「購買人／購買小計／付款狀態」表格：每位分攤人在這張卡片（所有品項合計）的小計金額，以及是否全部品項都已付清；若分攤人是目前登入者，該行「付款狀態」是可點擊按鈕（呼叫 `toggle_purchase_record_share_payment()`，一次切換自己在整張卡片的付款狀態），其他人的行僅唯讀顯示
+   - 若發起人是目前登入者，卡片右上角額外顯示「刪除」按鈕（刪除整筆紀錄，連同所有品項與品項分攤一起移除）
 6. 代買清單下方另外顯示兩張彙總表格（皆全站可見，不受 `can_view_rides` 限制）：
    - **各發起人本月代買小計**：列出本月每一位有發起代買的成員，各自的品項金額加總（例如 Hugo：$100）。
    - **我本月應付給各發起人**：以目前登入者為主體，列出本月要付給每位發起人的金額，分「已付款」「未付款」兩欄（依登入者自己在各筆分攤上的付款狀態統計），不受查看對象下拉切換影響。
@@ -246,9 +252,9 @@ purchase_records 1 ──── * purchase_shares
 | `/dashboard/carpool/<id>/pay` | POST | 標記單一共乘紀錄已付款（限本人，日曆點選面板用） | `toggle_payment_status()` |
 | `/dashboard/carpool/pay-month` | POST | 一鍵切換登入者當月「所有」共乘紀錄的付款狀態（限本人） | `toggle_month_carpool_payment_status()` |
 | `/dashboard/carpool-rate/save` | POST | 新增/更新一筆車資費率設定（僅車主） | `set_carpool_rate()` |
-| `/dashboard/purchase/add` | POST | 新增一筆代買紀錄（單一品項）與分攤（分攤對象可為空） | `create_purchase_record()` |
-| `/dashboard/purchase/<id>/delete` | POST | 刪除一筆代買紀錄（限發起人） | `delete_purchase_record()` |
-| `/dashboard/purchase/share/<id>/pay` | POST | 標記分攤款已付款（限本人） | `toggle_payment_status()` |
+| `/dashboard/purchase/add` | POST | 新增一個代買品項（分攤對象可為空），同日同代買人自動合併進既有卡片 | `add_purchase_item()` |
+| `/dashboard/purchase/<id>/delete` | POST | 刪除一筆代買紀錄（連同所有品項與分攤，限發起人） | `delete_purchase_record()` |
+| `/dashboard/purchase/<id>/pay-mine` | POST | 一鍵切換本人在這張代買卡片（所有品項）的分攤付款狀態 | `toggle_purchase_record_share_payment()` |
 | `/members` | GET/POST | 車主查看/新增成員（僅車主） | `add_member()` |
 | `/members/<id>/delete` | POST | 車主刪除成員（僅車主） | `remove_member()` |
 
@@ -347,14 +353,14 @@ web: gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
 ### 階段 2：資料庫模組開發
-- 建立 `models.py`：定義 `Member`、`CarpoolRecord`、`PurchaseRecord`、`PurchaseItem`、`PurchaseShare` 五個 SQLAlchemy 模型（依第 4 章 Schema）。
+- 建立 `models.py`：定義 `Member`、`CarpoolRecord`、`PurchaseRecord`、`PurchaseItem`、`PurchaseItemShare` 五個 SQLAlchemy 模型（依第 4 章 Schema）。
 - 建立 `database.py`：建立 engine（`sqlite:///carpool_purchase.db`）、`init_db()` 建表、`get_session()`。
 - 於 `init_db()` 中，若 `members` 表為空，可預先插入 1 位車主 + 4 位一般成員的初始名單（實際姓名由使用者於開發時提供或於成員管理頁補齊）。
 
 ### 階段 3：核心業務邏輯開發
 依序實作 `services.py`：
 1. `set_carpool_slot()` / `toggle_payment_status()` — 含權限檢查（僅本人）。
-2. `create_purchase_record()` — 寫入 `purchase_records` + `purchase_items` + 依分攤人數計算 `purchase_shares.share_amount`（`share_member_ids` 可為空）。
+2. `add_purchase_item()` — 寫入/合併 `purchase_records` + 新增 `purchase_items` + 依該品項分攤人數計算 `purchase_item_shares.share_amount`（分攤對象可為空）。
 3. `get_member_monthly_summary()` / `get_month_carpool_records()` / `get_month_purchase_records()` / `get_monthly_unpaid_count()` — 供儀表板統計卡片與「本月尚未結算」提示使用。
 4. `add_member()` / `remove_member()` — 車主專用，刪除成員不刪除其歷史紀錄。
 
